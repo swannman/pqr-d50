@@ -1,0 +1,19 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "pqr-d50"
+version = "0.1.0"
+description = "Linux/Raspberry-Pi driver for Powertronics PQR-series power-line monitors (reverse-engineered from PQRHost.exe)"
+readme = "README.md"
+requires-python = ">=3.8"
+license = { text = "MIT" }
+dependencies = ["pyserial>=3.4"]
+
+[project.scripts]
+pqr-capture = "capture:main"
+
+[tool.setuptools]
+packages = ["pqr_d50"]
+py-modules = ["capture"]
