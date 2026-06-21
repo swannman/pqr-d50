@@ -1,0 +1,6 @@
+## Managed components pulled from the ESP Component Registry.
+dependencies:
+  idf: ">=5.0"
+  espressif/usb_host_vcp: "^1.0.0"     # generic Virtual COM Port host service
+  espressif/usb_host_ftdi: "^1.0.0"    # FTDI VCP driver (D50's internal FT232)
+  espressif/usb_host_cdc_acm: "^2.0.0" # CDC-ACM host (used by the VCP layer)

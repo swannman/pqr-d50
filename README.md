@@ -92,6 +92,14 @@ Link: **8N1**, baud ∈ {2400, 4800, 9600, 14400, 19200, 115200}, default 19200.
 * `capture.py` — dump raw exchanges (diagnostics / other firmware).
 * `tools/pqrdev.py` — low-level live-exploration helper used during RE.
 
+## ESP32-S3 bridge
+
+[`esp32/pqr-d50-bridge/`](esp32/pqr-d50-bridge/) is standalone firmware that
+reads the D50 over the ESP32-S3's native USB (host mode — the D50 has an
+internal FT232) and pushes readings to Grafana Cloud (InfluxDB) over WiFi. The
+parsing / line-protocol cores are host-tested; the USB-host + WiFi paths need
+on-device bring-up. See its README for wiring and flashing.
+
 ## License
 
 MIT — see [LICENSE](LICENSE). Powertronics and PQR are trademarks of their
