@@ -21,3 +21,7 @@ esp32/**/dependencies.lock
 # host test artifacts
 esp32/**/test/host_test
 *.dSYM/
+
+# editor / clangd cache
+.cache/
+compile_commands.json
