@@ -70,33 +70,52 @@ Grafana Cloud/Mimir rejects samples older than ~1 h).
 
 Then every `D50_POLL_SEC`:
 1. `d50_reset()` — CR-spam + ESC + verify `C1` (resync to command mode).
-2. **Data log (`C4`)** → parse `date,time,Hot,v,Neu,v` → push samples newer than
-   the watermark as `pqr_d50,unit=086101 hot=121.1,neu=0.0 <ns>`.
-3. **Detail report (`C3`)** → parse events → push new ones as
-   `pqr_d50_event,unit=086101,type=power_failure magnitude=27.8 <ns>`.
+2. **Data log (`C4`)** → voltage **metrics** to Grafana Cloud (Influx line
+   protocol → Prometheus): `pqr_d50_hot`, `pqr_d50_neu`. Watermark-deduped.
+3. **Detail report (`C3`)** → disturbances to Grafana Cloud **Loki** as one
+   structured line per event:
+   `type=impulse channel=Hot magnitude=32.0 plot_v=154.8` (Loki de-dupes
+   identical entries, so the whole report is re-sent each poll — reboot-proof,
+   no watermark). `plot_v` is the value to draw on the voltage axis: impulse =
+   live volts + spike (peak); sag = the dip volts (start+complete share the dip
+   level so they form a line across the sag).
 4. Re-sync the RTC every `CLOCK_SYNC_HOURS`.
 
-POSTs go to Grafana Cloud (HTTP Basic: instance-id : token). In the Prometheus
-(Mimir) backend these become metrics `pqr_d50_hot`, `pqr_d50_neu`, and
-`pqr_d50_event_magnitude{type=...}`.
+Why two backends: voltage is a regularly-sampled series (a natural metric),
+while disturbances are discrete events with magnitudes — Loki stores those
+faithfully (no series collisions) and LogQL derives metrics from them
+(`max_over_time(... | unwrap plot_v)`), which is how the dashboard overlays
+impulse points and the sag line on the voltage chart.
 
 Set the D50's log sample rate (60 s default, or 1 s for near-real-time) once with
 the Python tool (`set_sample_rate`), or extend the firmware via `C6`→3.
 
 ## Grafana dashboard
 
-Import `grafana/pqr-d50-dashboard.json` and pick your Prometheus datasource. It
-has: line voltage with the ANSI C84.1 114–126 V band, neutral-to-ground voltage,
-latest-voltage + power-failure stats, a recent-disturbances table, and event
-**annotations** (so power-fail/sag markers can overlay your other dashboards).
+Import `grafana/pqr-d50-dashboard.json` (needs a Prometheus *and* a Loki
+datasource). The voltage panel overlays three series on one axis: the **line
+voltage**, **impulse peaks** as points (live volts + spike height), and **sag
+dips** as a line (spanning start→complete). Plus neutral-to-ground voltage with
+its bands, latest-voltage + power-failure stats, a recent-disturbances log, and
+disturbance **annotations**.
 
-## Data model (Prometheus / Grafana Cloud)
+## Data model (Grafana Cloud)
+
+Metrics (Prometheus / Influx push):
 
 | Metric | Labels | Meaning |
 |---|---|---|
 | `pqr_d50_hot` | `unit` | line voltage (V) |
 | `pqr_d50_neu` | `unit` | neutral-to-ground voltage (V) |
-| `pqr_d50_event_magnitude` | `unit`, `type` | disturbance magnitude (V) at event time |
+
+Events (Loki, stream `{service_name="pqr_d50", unit=...}`), one logfmt line each:
+
+```
+type=<impulse|sag_start|sag_complete|surge|power_failure|...> channel=Hot magnitude=<V> plot_v=<V>
+```
+
+Derive metrics with LogQL, e.g. impulse peaks:
+`max by (unit) (max_over_time({service_name="pqr_d50"} | logfmt | type="impulse" | unwrap plot_v [$__interval]))`
 
 ## Tested vs. needs-hardware
 

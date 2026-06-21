@@ -68,6 +68,7 @@ static volatile int64_t  s_rx_last_us = 0;
 static std::unique_ptr<CdcAcmDevice> s_vcp;
 static SemaphoreHandle_t s_dev_ready;
 static char s_unit_id[16] = "unknown";   // the D50's own ID, used as the metric tag
+static double s_last_hot = 120.0;        // latest Hot RMS volts, baseline for impulse peaks
 
 static bool rx_cb(const uint8_t *data, size_t len, void *arg) {
     if (s_rx_len + len <= sizeof(s_rx)) {
@@ -215,37 +216,43 @@ static void wifi_start(void) {
 // ---- Influx push ----
 // Build "Basic base64(user:token)" once, so we send auth preemptively (avoids a
 // guaranteed 401 + POST-body-resend dance every minute).
-static const char *influx_auth_header(void) {
-    static char hdr[320];
-    if (!hdr[0]) {
-        char creds[200];
-        int n = snprintf(creds, sizeof(creds), "%s:%s", INFLUX_USER, INFLUX_TOKEN);
-        unsigned char b64[300]; size_t olen = 0;
-        mbedtls_base64_encode(b64, sizeof(b64), &olen,
-                              (const unsigned char *)creds, n);
-        b64[olen] = 0;
-        snprintf(hdr, sizeof(hdr), "Basic %s", (char *)b64);
-    }
-    return hdr;
+static void make_basic_auth(char *hdr, size_t hdrsz, const char *user) {
+    char creds[200];
+    int n = snprintf(creds, sizeof(creds), "%s:%s", user, INFLUX_TOKEN);
+    unsigned char b64[300]; size_t olen = 0;
+    mbedtls_base64_encode(b64, sizeof(b64), &olen, (const unsigned char *)creds, n);
+    b64[olen] = 0;
+    snprintf(hdr, hdrsz, "Basic %s", (char *)b64);
 }
 
-static esp_err_t influx_push(const char *body, size_t len) {
+static esp_err_t http_post(const char *url, const char *auth, const char *ctype,
+                           const char *body, size_t len, const char *tag) {
     esp_http_client_config_t cfg = {};
-    cfg.url = INFLUX_URL;
+    cfg.url = url;
     cfg.method = HTTP_METHOD_POST;
     cfg.crt_bundle_attach = esp_crt_bundle_attach;   // verify Grafana Cloud TLS
     esp_http_client_handle_t c = esp_http_client_init(&cfg);
-    esp_http_client_set_header(c, "Content-Type", "text/plain");
-    esp_http_client_set_header(c, "Authorization", influx_auth_header());
+    esp_http_client_set_header(c, "Content-Type", ctype);
+    esp_http_client_set_header(c, "Authorization", auth);
     esp_http_client_set_post_field(c, body, len);
     esp_err_t err = esp_http_client_perform(c);
     int status = esp_http_client_get_status_code(c);
-    if (err == ESP_OK)
-        ESP_LOGI(TAG, "influx push -> HTTP %d", status);
-    else
-        ESP_LOGE(TAG, "influx push failed: %s", esp_err_to_name(err));
+    if (err == ESP_OK) ESP_LOGI(TAG, "%s -> HTTP %d", tag, status);
+    else ESP_LOGE(TAG, "%s failed: %s", tag, esp_err_to_name(err));
     esp_http_client_cleanup(c);
     return (err == ESP_OK && status / 100 == 2) ? ESP_OK : ESP_FAIL;
+}
+
+static esp_err_t influx_push(const char *body, size_t len) {
+    static char auth[320];
+    if (!auth[0]) make_basic_auth(auth, sizeof(auth), INFLUX_USER);
+    return http_post(INFLUX_URL, auth, "text/plain", body, len, "influx");
+}
+
+static esp_err_t loki_push(const char *body, size_t len) {
+    static char auth[320];
+    if (!auth[0]) make_basic_auth(auth, sizeof(auth), LOKI_USER);
+    return http_post(LOKI_URL, auth, "application/json", body, len, "loki");
 }
 
 // ---- USB host plumbing ----
@@ -305,6 +312,7 @@ static void process_datalog(int64_t *watermark, bool send) {
     static d50_sample_t samples[256];
     size_t n = d50_xfer("C4", 2, 1500, 30000);
     size_t cnt = d50_parse_datalog((char *)s_rx, n, samples, 256);
+    if (cnt) s_last_hot = samples[cnt - 1].ch1_value;   // baseline for impulse peaks
     size_t bl = 0; int pushed = 0; int64_t newest = *watermark;
     for (size_t i = 0; i < cnt; i++) {
         int64_t ts = d50_timestamp_to_unix(samples[i].date, samples[i].time);
@@ -324,27 +332,57 @@ static void process_datalog(int64_t *watermark, bool send) {
 }
 
 // Pull the detail report (C3), push events newer than *watermark.
-static void process_events(int64_t *watermark, bool send) {
-    static char body[6144];
-    static d50_event_t events[256];
+// Convert a D50 event date/time ("Mon/DD/YY","HH:MM:SS[.cc]") to Loki ns.
+static int64_t d50_event_ns(const d50_event_t *e) {
+    int64_t sec = d50_timestamp_to_unix(e->date, e->time);
+    int cc = 0;
+    const char *dot = strchr(e->time, '.');
+    if (dot) cc = atoi(dot + 1);                 // hundredths of a second
+    return sec * 1000000000LL + (int64_t)cc * 10000000LL;
+}
+
+// Push every disturbance in the C3 detail report to Loki as a structured line.
+// Loki de-dupes identical (timestamp, line) entries, so re-sending the whole
+// report each poll is safe and reboot-proof (no watermark needed).
+// plot_v = the value to draw on the voltage axis:
+//   impulse -> live voltage + magnitude (the transient's peak, "how much higher")
+//   sag     -> the absolute RMS volts (the dip); sag_complete reuses the dip level
+//              so a sag's start+complete connect as a flat line across its duration.
+static void push_events_loki(void) {
+    static char body[8192];
+    static d50_event_t evs[128];
     size_t n = d50_xfer("C3", 2, 1500, 30000);
-    size_t cnt = d50_parse_detail((char *)s_rx, n, events, 256);
-    size_t bl = 0; int pushed = 0; int64_t newest = *watermark;
+    size_t cnt = d50_parse_detail((char *)s_rx, n, evs, 128);
+    if (!cnt) return;
+
+    int bl = snprintf(body, sizeof(body),
+        "{\"streams\":[{\"stream\":{\"service_name\":\"pqr_d50\",\"unit\":\"%s\"},"
+        "\"values\":[", s_unit_id);
+    int added = 0;
+    double sag_low = 0;
     for (size_t i = 0; i < cnt; i++) {
-        int64_t ts = d50_timestamp_to_unix(events[i].date, events[i].time);
-        if (ts <= *watermark) continue;
-        if (ts > newest) newest = ts;
-        if (!send) continue;
-        char line[160];
-        int w = influx_format_event(line, sizeof(line), INFLUX_EVENT_MEASUREMENT,
-                                    s_unit_id, &events[i], ts);
-        if (w < 0 || bl + w + 1 >= sizeof(body)) break;
-        memcpy(body + bl, line, w); bl += w; body[bl++] = '\n';
-        pushed++;
+        char type[24];
+        strncpy(type, evs[i].event_type, sizeof(type) - 1); type[sizeof(type) - 1] = 0;
+        influx_normalize_label(type);            // "Sag Start" -> "sag_start"
+
+        double plot_v;
+        if (strstr(type, "impulse"))           plot_v = s_last_hot + evs[i].magnitude;
+        else if (strstr(type, "sag_start"))    { plot_v = evs[i].magnitude; sag_low = plot_v; }
+        else if (strstr(type, "sag_complete")) plot_v = sag_low > 0 ? sag_low : evs[i].magnitude;
+        else                                   plot_v = evs[i].magnitude;
+
+        int64_t ts = d50_event_ns(&evs[i]);
+        char line[128];
+        snprintf(line, sizeof(line), "type=%s channel=%s magnitude=%.1f plot_v=%.1f",
+                 type, evs[i].channel, evs[i].magnitude, plot_v);
+        int w = snprintf(body + bl, sizeof(body) - bl, "%s[\"%lld\",\"%s\"]",
+                         added ? "," : "", (long long)ts, line);
+        if (w < 0 || bl + w + 8 >= (int)sizeof(body)) break;
+        bl += w; added++;
     }
-    if (send && bl && influx_push(body, bl) == ESP_OK) *watermark = newest;
-    else if (!send) *watermark = newest;
-    if (send && pushed) ESP_LOGI(TAG, "events: %d new of %u", pushed, (unsigned)cnt);
+    bl += snprintf(body + bl, sizeof(body) - bl, "]}]}");
+    if (added && loki_push(body, bl) == ESP_OK)
+        ESP_LOGI(TAG, "loki: pushed %d events", added);
 }
 
 static void sntp_start(void) {
@@ -453,11 +491,9 @@ extern "C" void app_main(void) {
 #if D50_SET_THRESHOLDS
     d50_apply_thresholds();   // one-shot: write configured surge/sag thresholds
 #endif
-    int64_t sample_wm = 0, event_wm = 0;
-    process_datalog(&sample_wm, false);
-    process_events(&event_wm, false);
-    ESP_LOGI(TAG, "primed: sample_wm=%lld event_wm=%lld",
-             (long long)sample_wm, (long long)event_wm);
+    int64_t sample_wm = 0;
+    process_datalog(&sample_wm, false);   // prime voltage watermark (no backfill)
+    ESP_LOGI(TAG, "primed: sample_wm=%lld", (long long)sample_wm);
 
     int64_t last_clock_sync = esp_timer_get_time();
 
@@ -465,8 +501,8 @@ extern "C" void app_main(void) {
         if (!s_vcp) { open_d50(); vTaskDelay(pdMS_TO_TICKS(2000)); continue; }
 
         d50_reset();
-        process_datalog(&sample_wm, true);
-        process_events(&event_wm, true);
+        process_datalog(&sample_wm, true);   // voltage -> Prometheus
+        push_events_loki();                   // disturbances -> Loki (impulse/sag series)
 
         // periodic RTC re-sync (drift correction)
         if ((esp_timer_get_time() - last_clock_sync) >

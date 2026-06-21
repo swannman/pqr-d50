@@ -1,220 +1,505 @@
 {
-  "__inputs": [
-    {
-      "name": "DS_PROM",
-      "label": "Prometheus / Grafana Cloud Metrics",
-      "description": "The Prometheus (Mimir) datasource your D50 metrics land in.",
-      "type": "datasource",
-      "pluginId": "prometheus",
-      "pluginName": "Prometheus"
-    }
-  ],
   "annotations": {
     "list": [
       {
-        "name": "Disturbances",
-        "datasource": { "type": "prometheus", "uid": "${DS_PROM}" },
+        "datasource": {
+          "type": "loki",
+          "uid": "grafanacloud-logs"
+        },
         "enable": true,
+        "expr": "{service_name=\"pqr_d50\", unit=~\"$unit\"}",
         "iconColor": "red",
-        "expr": "pqr_d50_event_magnitude{unit=~\"$unit\"}",
-        "titleFormat": "{{type}}",
-        "textFormat": "{{type}} ({{value}} V)",
-        "tagKeys": "type"
+        "name": "Disturbances",
+        "queryType": "range"
       }
     ]
   },
   "editable": true,
-  "title": "PQR D50 - Mains Power Quality",
-  "uid": "pqr-d50-mains",
-  "tags": ["power", "pqr-d50"],
-  "timezone": "browser",
-  "schemaVersion": 39,
-  "version": 1,
-  "time": { "from": "now-24h", "to": "now" },
-  "refresh": "1m",
-  "templating": {
-    "list": [
-      {
-        "name": "DS_PROM",
-        "label": "Datasource",
-        "type": "datasource",
-        "query": "prometheus",
-        "current": {}
-      },
-      {
-        "name": "unit",
-        "label": "Unit",
-        "type": "query",
-        "datasource": { "type": "prometheus", "uid": "${DS_PROM}" },
-        "query": "label_values(pqr_d50_hot, unit)",
-        "refresh": 2,
-        "includeAll": true,
-        "current": { "text": "All", "value": "$__all" }
-      }
-    ]
-  },
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 0,
+  "liveNow": false,
   "panels": [
     {
-      "id": 1,
-      "type": "timeseries",
-      "title": "Line voltage (Hot)  -  ANSI C84.1 normal 114-126 V",
-      "datasource": { "type": "prometheus", "uid": "${DS_PROM}" },
-      "gridPos": { "h": 9, "w": 24, "x": 0, "y": 0 },
+      "datasource": {
+        "type": "datasource",
+        "uid": "-- Mixed --"
+      },
       "fieldConfig": {
         "defaults": {
-          "unit": "volt",
+          "custom": {
+            "drawStyle": "line",
+            "fillOpacity": 0,
+            "lineWidth": 2,
+            "showPoints": "auto",
+            "spanNulls": false
+          },
+          "max": 200,
           "min": 100,
-          "max": 132,
-          "custom": {
-            "drawStyle": "line",
-            "lineWidth": 2,
-            "fillOpacity": 5,
-            "spanNulls": true,
-            "thresholdsStyle": { "mode": "dashed" }
-          },
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              { "color": "red", "value": null },
-              { "color": "orange", "value": 110 },
-              { "color": "green", "value": 114 },
-              { "color": "orange", "value": 126 },
-              { "color": "red", "value": 127 }
-            ]
-          }
+          "unit": "volt"
         },
-        "overrides": []
-      },
-      "targets": [
-        {
-          "refId": "A",
-          "datasource": { "type": "prometheus", "uid": "${DS_PROM}" },
-          "expr": "pqr_d50_hot{unit=~\"$unit\"}",
-          "legendFormat": "Hot {{unit}}"
-        }
-      ]
-    },
-    {
-      "id": 2,
-      "type": "timeseries",
-      "title": "Neutral-to-ground voltage  (good < 2 V · investigate > 3 V)",
-      "datasource": { "type": "prometheus", "uid": "${DS_PROM}" },
-      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 9 },
-      "fieldConfig": {
-        "defaults": {
-          "unit": "volt",
-          "min": 0,
-          "max": 5,
-          "decimals": 2,
-          "custom": {
-            "drawStyle": "line",
-            "lineWidth": 2,
-            "fillOpacity": 10,
-            "thresholdsStyle": { "mode": "dashed" }
-          },
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              { "color": "green", "value": null },
-              { "color": "yellow", "value": 2 },
-              { "color": "red", "value": 3 }
-            ]
-          }
-        }
-      },
-      "targets": [
-        {
-          "refId": "A",
-          "datasource": { "type": "prometheus", "uid": "${DS_PROM}" },
-          "expr": "pqr_d50_neu{unit=~\"$unit\"}",
-          "legendFormat": "Neu {{unit}}"
-        }
-      ]
-    },
-    {
-      "id": 3,
-      "type": "stat",
-      "title": "Latest line voltage",
-      "datasource": { "type": "prometheus", "uid": "${DS_PROM}" },
-      "gridPos": { "h": 8, "w": 6, "x": 12, "y": 9 },
-      "fieldConfig": {
-        "defaults": {
-          "unit": "volt",
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              { "color": "red", "value": null },
-              { "color": "green", "value": 114 },
-              { "color": "red", "value": 127 }
-            ]
-          }
-        }
-      },
-      "options": { "colorMode": "value", "graphMode": "area", "reduceOptions": { "calcs": ["lastNotNull"] } },
-      "targets": [
-        {
-          "refId": "A",
-          "datasource": { "type": "prometheus", "uid": "${DS_PROM}" },
-          "expr": "pqr_d50_hot{unit=~\"$unit\"}",
-          "instant": true
-        }
-      ]
-    },
-    {
-      "id": 4,
-      "type": "stat",
-      "title": "Power failures (range)",
-      "datasource": { "type": "prometheus", "uid": "${DS_PROM}" },
-      "gridPos": { "h": 8, "w": 6, "x": 18, "y": 9 },
-      "fieldConfig": {
-        "defaults": {
-          "unit": "short",
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              { "color": "green", "value": null },
-              { "color": "red", "value": 1 }
-            ]
-          }
-        }
-      },
-      "options": { "colorMode": "background", "graphMode": "none", "reduceOptions": { "calcs": ["lastNotNull"] } },
-      "targets": [
-        {
-          "refId": "A",
-          "datasource": { "type": "prometheus", "uid": "${DS_PROM}" },
-          "expr": "count_over_time(pqr_d50_event_magnitude{unit=~\"$unit\", type=\"power_failure\"}[$__range])",
-          "instant": true
-        }
-      ]
-    },
-    {
-      "id": 5,
-      "type": "table",
-      "title": "Recent disturbances",
-      "datasource": { "type": "prometheus", "uid": "${DS_PROM}" },
-      "gridPos": { "h": 9, "w": 24, "x": 0, "y": 17 },
-      "options": { "showHeader": true },
-      "fieldConfig": {
-        "defaults": {},
         "overrides": [
-          { "matcher": { "id": "byName", "options": "Value" },
-            "properties": [ { "id": "displayName", "value": "Magnitude (V)" }, { "id": "unit", "value": "volt" } ] }
+          {
+            "matcher": {
+              "id": "byFrameRefID",
+              "options": "A"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "green",
+                  "mode": "fixed"
+                }
+              },
+              {
+                "id": "displayName",
+                "value": "Line voltage"
+              },
+              {
+                "id": "custom.thresholdsStyle",
+                "value": {
+                  "mode": "dashed"
+                }
+              },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "green",
+                      "value": null
+                    },
+                    {
+                      "color": "blue",
+                      "value": 115
+                    },
+                    {
+                      "color": "orange",
+                      "value": 126
+                    }
+                  ]
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byFrameRefID",
+              "options": "B"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "red",
+                  "mode": "fixed"
+                }
+              },
+              {
+                "id": "displayName",
+                "value": "Impulse peak"
+              },
+              {
+                "id": "custom.drawStyle",
+                "value": "points"
+              },
+              {
+                "id": "custom.pointSize",
+                "value": 8
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byFrameRefID",
+              "options": "C"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "super-light-blue",
+                  "mode": "fixed"
+                }
+              },
+              {
+                "id": "displayName",
+                "value": "Sag"
+              },
+              {
+                "id": "custom.drawStyle",
+                "value": "line"
+              },
+              {
+                "id": "custom.lineWidth",
+                "value": 2
+              },
+              {
+                "id": "custom.showPoints",
+                "value": "always"
+              },
+              {
+                "id": "custom.pointSize",
+                "value": 6
+              },
+              {
+                "id": "custom.spanNulls",
+                "value": 60000
+              }
+            ]
+          }
         ]
       },
+      "gridPos": {
+        "h": 10,
+        "w": 24,
+        "x": 0,
+        "y": 0
+      },
+      "id": 1,
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      },
       "targets": [
         {
-          "refId": "A",
-          "datasource": { "type": "prometheus", "uid": "${DS_PROM}" },
-          "expr": "pqr_d50_event_magnitude{unit=~\"$unit\"}",
-          "format": "table",
-          "instant": false
+          "datasource": {
+            "type": "prometheus",
+            "uid": "grafanacloud-prom"
+          },
+          "expr": "pqr_d50_hot{unit=~\"$unit\"}",
+          "legendFormat": "Line voltage",
+          "refId": "A"
+        },
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "grafanacloud-logs"
+          },
+          "expr": "max by (unit) (max_over_time({service_name=\"pqr_d50\", unit=~\"$unit\"} | logfmt | type=\"impulse\" | unwrap plot_v [$__interval]))",
+          "legendFormat": "Impulse peak",
+          "queryType": "range",
+          "refId": "B"
+        },
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "grafanacloud-logs"
+          },
+          "expr": "min by (unit) (min_over_time({service_name=\"pqr_d50\", unit=~\"$unit\"} | logfmt | type=~\"sag_start|sag_complete\" | unwrap plot_v [$__interval]))",
+          "legendFormat": "Sag",
+          "queryType": "range",
+          "refId": "C"
         }
       ],
-      "transformations": [
-        { "id": "labelsToFields", "options": {} },
-        { "id": "organize", "options": { "excludeByName": { "__name__": true, "job": true, "instance": true } } }
-      ]
+      "title": "Line voltage + disturbances  (impulse peaks \u00b7 sag dips)",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "grafanacloud-prom"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "barWidthFactor": 0.6,
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "insertNulls": false,
+            "lineInterpolation": "linear",
+            "lineWidth": 2,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "auto",
+            "showValues": false,
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "area"
+            }
+          },
+          "decimals": 2,
+          "max": 5,
+          "min": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": 0
+              },
+              {
+                "color": "yellow",
+                "value": 2
+              },
+              {
+                "color": "red",
+                "value": 3
+              }
+            ]
+          },
+          "unit": "volt"
+        }
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 9
+      },
+      "id": 2,
+      "options": {
+        "annotations": {
+          "clustering": -1,
+          "multiLane": false
+        },
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "enableFacetedFilter": false,
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "hideZeros": false,
+          "mode": "single",
+          "sort": "none"
+        }
+      },
+      "pluginVersion": "13.1.0-27822252871",
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "grafanacloud-prom"
+          },
+          "editorMode": "code",
+          "expr": "pqr_d50_neu",
+          "legendFormat": "Neu {{unit}}",
+          "range": true,
+          "refId": "A"
+        }
+      ],
+      "title": "Neutral-to-ground voltage  (good < 2 V \u00b7 investigate > 3 V)",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "grafanacloud-prom"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": 0
+              },
+              {
+                "color": "green",
+                "value": 114
+              },
+              {
+                "color": "red",
+                "value": 127
+              }
+            ]
+          },
+          "unit": "volt"
+        }
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 6,
+        "x": 12,
+        "y": 9
+      },
+      "id": 3,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "percentChangeColorMode": "standard",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "showPercentChange": false,
+        "textMode": "auto",
+        "wideLayout": true
+      },
+      "pluginVersion": "13.1.0-27822252871",
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "grafanacloud-prom"
+          },
+          "editorMode": "code",
+          "expr": "pqr_d50_hot",
+          "instant": true,
+          "refId": "A"
+        }
+      ],
+      "title": "Latest line voltage",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "loki",
+        "uid": "grafanacloud-logs"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": 0
+              },
+              {
+                "color": "red",
+                "value": 1
+              }
+            ]
+          },
+          "unit": "short"
+        }
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 6,
+        "x": 18,
+        "y": 9
+      },
+      "id": 4,
+      "options": {
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "percentChangeColorMode": "standard",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "showPercentChange": false,
+        "textMode": "auto",
+        "wideLayout": true
+      },
+      "pluginVersion": "13.1.0-27822252871",
+      "targets": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "grafanacloud-logs"
+          },
+          "expr": "sum(count_over_time({service_name=\"pqr_d50\", unit=~\"$unit\"} | logfmt | type=\"power_failure\" [$__range]))",
+          "queryType": "instant",
+          "refId": "A"
+        }
+      ],
+      "title": "Power failures (range)",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "loki",
+        "uid": "grafanacloud-logs"
+      },
+      "gridPos": {
+        "h": 9,
+        "w": 24,
+        "x": 0,
+        "y": 17
+      },
+      "id": 5,
+      "options": {
+        "dedupStrategy": "none",
+        "enableLogDetails": true,
+        "showTime": true,
+        "sortOrder": "Descending",
+        "wrapLogMessage": false
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "grafanacloud-logs"
+          },
+          "expr": "{service_name=\"pqr_d50\", unit=~\"$unit\"} | logfmt",
+          "queryType": "range",
+          "refId": "A"
+        }
+      ],
+      "title": "Recent disturbances",
+      "type": "logs"
     }
-  ]
+  ],
+  "preload": false,
+  "refresh": "1m",
+  "schemaVersion": 42,
+  "tags": [
+    "power",
+    "pqr-d50"
+  ],
+  "time": {
+    "from": "now-24h",
+    "to": "now"
+  },
+  "timepicker": {
+    "refresh_intervals": [
+      "5s",
+      "10s",
+      "30s",
+      "1m",
+      "5m",
+      "15m",
+      "30m",
+      "1h",
+      "2h",
+      "1d"
+    ]
+  },
+  "timezone": "browser",
+  "title": "PQR D50 \u2014 Mains Power Quality",
+  "uid": "pqr-d50-mains",
+  "version": 0
 }
