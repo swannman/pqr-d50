@@ -26,11 +26,12 @@
 #define D50_BAUD        19200      // D50 V20.55 default
 #define D50_POLL_SEC    60         // how often to pull log + events
 
-// The D50 data log fills (~184 samples) then STOPS logging (it doesn't wrap).
-// Auto-clear it once it stalls so voltage keeps flowing; everything is already
-// in Grafana (voltage->Prometheus, events->Loki) before the clear runs.
-#define D50_AUTOCLEAR        1     // 1 = clear a full/stalled data log
-#define D50_AUTOCLEAR_POLLS  4     // clear after this many polls with 0 new samples
+// The D50 data log fills (~184 samples / ~3h) then STOPS logging (no wrap).
+// Clear it periodically so voltage keeps flowing; everything is already in
+// Grafana (voltage->Prometheus, events->Loki) before the clear runs.
+#define D50_AUTOCLEAR        1     // master enable for auto-clear
+#define D50_CLEAR_HOURS      1     // primary: clear on this schedule (< fill time)
+#define D50_AUTOCLEAR_POLLS  4     // backstop: also clear if stalled (0 new) this long
 
 // ---- One-shot disturbance thresholds (C6 option 4), applied on boot ----
 // 1 = write these once at startup then run normally; 0 = don't touch them.

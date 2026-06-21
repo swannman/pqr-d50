@@ -507,6 +507,7 @@ extern "C" void app_main(void) {
     ESP_LOGI(TAG, "primed: sample_wm=%lld", (long long)sample_wm);
 
     int64_t last_clock_sync = esp_timer_get_time();
+    int64_t last_clear = esp_timer_get_time();
     int stall_polls = 0;
 
     while (true) {
@@ -517,16 +518,19 @@ extern "C" void app_main(void) {
         push_events_loki();                   // disturbances -> Loki (impulse/sag series)
 
 #if D50_AUTOCLEAR
-        // A full data log stops producing new samples; clear it (after the above
-        // pushes) so the D50 resumes logging.
-        if (newsamples == 0) {
-            if (++stall_polls >= D50_AUTOCLEAR_POLLS) {
-                d50_clear_data();
-                sample_wm = 0;        // log emptied; accept fresh samples
-                stall_polls = 0;
-            }
-        } else {
+        // Clear the device log (after the above pushes) so it keeps logging:
+        //  - primary: every D50_CLEAR_HOURS, well before the ~3h fill
+        //  - backstop: if it stalls (0 new samples) for D50_AUTOCLEAR_POLLS
+        stall_polls = (newsamples == 0) ? stall_polls + 1 : 0;
+        bool clear_due =
+            (esp_timer_get_time() - last_clear)
+                >= (int64_t)D50_CLEAR_HOURS * 3600 * 1000000LL ||
+            stall_polls >= D50_AUTOCLEAR_POLLS;
+        if (clear_due) {
+            d50_clear_data();
+            sample_wm = 0;            // log emptied; accept fresh samples
             stall_polls = 0;
+            last_clear = esp_timer_get_time();
         }
 #endif
 

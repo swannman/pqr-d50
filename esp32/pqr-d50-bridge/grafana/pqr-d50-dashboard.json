@@ -1,18 +1,6 @@
 {
   "annotations": {
-    "list": [
-      {
-        "datasource": {
-          "type": "loki",
-          "uid": "grafanacloud-logs"
-        },
-        "enable": true,
-        "expr": "{service_name=\"pqr_d50\"}",
-        "iconColor": "red",
-        "name": "Disturbances",
-        "queryType": "range"
-      }
-    ]
+    "list": []
   },
   "editable": true,
   "fiscalYearStartMonth": 0,
@@ -480,6 +468,9 @@
     "power",
     "pqr-d50"
   ],
+  "templating": {
+    "list": []
+  },
   "time": {
     "from": "now-24h",
     "to": "now"
@@ -501,8 +492,5 @@
   "timezone": "browser",
   "title": "PQR D50 \u2014 Mains Power Quality",
   "uid": "pqr-d50-mains",
-  "version": 0,
-  "templating": {
-    "list": []
-  }
+  "version": 0
 }
