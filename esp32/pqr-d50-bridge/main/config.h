@@ -26,6 +26,19 @@
 #define D50_BAUD        19200      // D50 V20.55 default
 #define D50_POLL_SEC    60         // how often to pull log + events
 
+// ---- One-shot disturbance thresholds (C6 option 4), applied on boot ----
+// 1 = write these once at startup then run normally; 0 = don't touch them.
+// Order is the device's: CH1=Hot, CH2=Neutral, each Surge/Sag/PowerFail.
+// Value: volts to trip at | 0 = device default (5%,10%) | -1 = keep current.
+// Set to 1 to (re-)apply; device keeps them in battery-backed RAM, so 0 normally.
+#define D50_SET_THRESHOLDS 0
+#define TH_CH1_SURGE  123   // Hot: surge trips above 123 V
+#define TH_CH1_SAG    115   // Hot: sag trips below 115 V
+#define TH_CH1_PFAIL  (-1)  // keep
+#define TH_CH2_SURGE  (-1)  // neutral channel: keep
+#define TH_CH2_SAG    (-1)
+#define TH_CH2_PFAIL  (-1)
+
 // ---- USB ----
 // Optional GPIO to enable 5V VBUS via a load switch. This board instead uses a
 // "USB-OTG" solder jumper to route 5V to the host port, so leave -1.

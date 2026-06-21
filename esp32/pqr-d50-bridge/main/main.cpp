@@ -146,6 +146,41 @@ static bool d50_set_clock(void) {
     return ok;
 }
 
+#if D50_SET_THRESHOLDS
+// Apply CH1/CH2 surge/sag/power-fail thresholds via the C6 setup menu (option 4).
+// The flow is a fixed 6-prompt walk that ignores ESC; we send a value, "0" for
+// default, or blank (CR) to keep each. Then we read the values back and log them.
+static void d50_apply_thresholds(void) {
+    const int vals[6] = { TH_CH1_SURGE, TH_CH1_SAG, TH_CH1_PFAIL,
+                          TH_CH2_SURGE, TH_CH2_SAG, TH_CH2_PFAIL };
+    const char *names[6] = { "CH1 Surge", "CH1 Sag", "CH1 PowerFail",
+                             "CH2 Surge", "CH2 Sag", "CH2 PowerFail" };
+    ESP_LOGI(TAG, "applying disturbance thresholds...");
+    d50_xfer("C6", 2, 800, 3000);          // setup menu
+    d50_xfer("4\r", 2, 1200, 3000);        // option 4 -> first prompt (CH1 Surge)
+    for (int i = 0; i < 6; i++) {
+        char buf[16];
+        if (vals[i] < 0) { buf[0] = '\r'; buf[1] = 0; }      // keep current
+        else snprintf(buf, sizeof(buf), "%d\r", vals[i]);    // set volts (0=default)
+        ESP_LOGI(TAG, "  %s <- %s", names[i], vals[i] < 0 ? "keep" : buf);
+        d50_xfer(buf, strlen(buf), 1000, 3000);              // send, read next prompt
+    }
+    d50_reset();
+
+    // Read back: walk option 4 again with blanks; each prompt echoes the stored value.
+    d50_xfer("C6", 2, 800, 3000);
+    d50_xfer("4\r", 2, 1200, 3000);
+    for (int i = 0; i < 6; i++) {
+        size_t n = s_rx_len < sizeof(s_rx) ? s_rx_len : sizeof(s_rx) - 1;
+        s_rx[n] = 0;
+        ESP_LOGI(TAG, "  readback %s: %.70s", names[i], (char *)s_rx);
+        d50_xfer("\r", 1, 1000, 3000);     // advance to next prompt
+    }
+    d50_reset();
+    ESP_LOGI(TAG, "thresholds applied");
+}
+#endif
+
 // ---- WiFi ----
 static EventGroupHandle_t s_wifi_eg;
 #define WIFI_CONNECTED_BIT BIT0
@@ -406,6 +441,9 @@ extern "C" void app_main(void) {
     d50_reset();
     fetch_unit_id();          // tag metrics with the D50's own ID
     d50_set_clock();
+#if D50_SET_THRESHOLDS
+    d50_apply_thresholds();   // one-shot: write configured surge/sag thresholds
+#endif
     int64_t sample_wm = 0, event_wm = 0;
     process_datalog(&sample_wm, false);
     process_events(&event_wm, false);
