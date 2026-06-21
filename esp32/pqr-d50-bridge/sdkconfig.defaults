@@ -15,3 +15,6 @@ CONFIG_PARTITION_TABLE_SINGLE_APP_LARGE=y
 # 8MB octal PSRAM (R8)
 CONFIG_ESP32S3_SPIRAM_SUPPORT=y
 CONFIG_SPIRAM_MODE_OCT=y
+
+# usb_host_vcp uses C++ exceptions (VCP::open throws when no device present)
+CONFIG_COMPILER_CXX_EXCEPTIONS=y

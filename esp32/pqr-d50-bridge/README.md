@@ -25,7 +25,13 @@ here over USB host instead of a PC serial port.
   you're done; if not, inject 5 V via the OTG adapter, or set `USB_VBUS_EN_GPIO`
   in `config.h` if your board has a VBUS load-switch.
 
-## Build & flash (ESP-IDF ≥ 5.0)
+## Build & flash
+
+Built and verified with **ESP-IDF v5.3.2** (use Python ≤ 3.12 — IDF doesn't
+support 3.13+ yet). The build pulls the managed components automatically:
+`espressif/usb_host_vcp` and `espressif/usb_host_ftdi_vcp` (which brings
+`usb_host_cdc_acm` 2.x). The VCP layer uses C++ exceptions, so
+`CONFIG_COMPILER_CXX_EXCEPTIONS=y` is set in `sdkconfig.defaults`.
 
 ```bash
 . $IDF_PATH/export.sh
@@ -33,11 +39,14 @@ cd esp32/pqr-d50-bridge
 # edit main/config.h: WiFi creds + Grafana Cloud Influx URL/user/token
 idf.py set-target esp32s3
 idf.py build
-idf.py -p /dev/ttyACM0 flash monitor    # flash via the UART port
+idf.py -p <COM-port> flash monitor
 ```
 
-`idf.py` pulls the managed USB-host components (`usb_host_vcp`,
-`usb_host_ftdi`, `usb_host_cdc_acm`) automatically.
+**Flash via the "COM" port, not "USB".** On the S3, the native "USB" port
+(USB-Serial-JTAG) shares GPIO19/20 with the USB-OTG controller — once the
+firmware enables USB host, a console on that port drops. So flash/monitor over
+the **"COM"** (UART-bridge) port and leave **"USB"** for the D50. You can keep
+both plugged in: COM = power + console, USB = D50 (via OTG adapter).
 
 ## How it works
 

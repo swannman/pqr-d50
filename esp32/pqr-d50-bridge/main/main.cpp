@@ -13,6 +13,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <memory>
+#include <exception>
 
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -23,6 +24,8 @@
 #include "esp_netif.h"
 #include "nvs_flash.h"
 #include "esp_http_client.h"
+#include "esp_crt_bundle.h"
+#include "mbedtls/base64.h"
 #include "esp_sntp.h"
 #include "esp_timer.h"
 #include "driver/gpio.h"
@@ -158,16 +161,30 @@ static void wifi_start(void) {
 }
 
 // ---- Influx push ----
+// Build "Basic base64(user:token)" once, so we send auth preemptively (avoids a
+// guaranteed 401 + POST-body-resend dance every minute).
+static const char *influx_auth_header(void) {
+    static char hdr[320];
+    if (!hdr[0]) {
+        char creds[200];
+        int n = snprintf(creds, sizeof(creds), "%s:%s", INFLUX_USER, INFLUX_TOKEN);
+        unsigned char b64[300]; size_t olen = 0;
+        mbedtls_base64_encode(b64, sizeof(b64), &olen,
+                              (const unsigned char *)creds, n);
+        b64[olen] = 0;
+        snprintf(hdr, sizeof(hdr), "Basic %s", (char *)b64);
+    }
+    return hdr;
+}
+
 static esp_err_t influx_push(const char *body, size_t len) {
     esp_http_client_config_t cfg = {};
     cfg.url = INFLUX_URL;
     cfg.method = HTTP_METHOD_POST;
-    cfg.auth_type = HTTP_AUTH_TYPE_BASIC;
-    cfg.username = INFLUX_USER;
-    cfg.password = INFLUX_TOKEN;
-    cfg.crt_bundle_attach = NULL;   // set esp_crt_bundle_attach in CMake for TLS
+    cfg.crt_bundle_attach = esp_crt_bundle_attach;   // verify Grafana Cloud TLS
     esp_http_client_handle_t c = esp_http_client_init(&cfg);
     esp_http_client_set_header(c, "Content-Type", "text/plain");
+    esp_http_client_set_header(c, "Authorization", influx_auth_header());
     esp_http_client_set_post_field(c, body, len);
     esp_err_t err = esp_http_client_perform(c);
     int status = esp_http_client_get_status_code(c);
@@ -198,18 +215,22 @@ static void open_d50(void) {
     dev_cfg.user_arg = NULL;
 
     VCP::register_driver<FT23x>();          // FTDI VCP (D50's internal FT232)
-    s_vcp.reset(VCP::open(&dev_cfg));
-    if (!s_vcp) { ESP_LOGE(TAG, "VCP open failed"); return; }
-
-    cdc_acm_line_coding_t lc = {};
-    lc.dwDTERate = D50_BAUD;
-    lc.bCharFormat = 0;   // 1 stop bit
-    lc.bParityType = 0;   // none
-    lc.bDataBits = 8;
-    s_vcp->line_coding_set(&lc);
-    s_vcp->set_control_line_state(true, true);  // DTR, RTS
-    ESP_LOGI(TAG, "D50 VCP open @ %d 8N1", D50_BAUD);
-    xSemaphoreGive(s_dev_ready);
+    try {
+        // VCP::open throws (esp_usb uses C++ exceptions) until the D50 enumerates
+        s_vcp.reset(VCP::open(&dev_cfg));
+        cdc_acm_line_coding_t lc = {};
+        lc.dwDTERate = D50_BAUD;
+        lc.bCharFormat = 0;   // 1 stop bit
+        lc.bParityType = 0;   // none
+        lc.bDataBits = 8;
+        s_vcp->line_coding_set(&lc);
+        s_vcp->set_control_line_state(true, true);  // DTR, RTS
+        ESP_LOGI(TAG, "D50 VCP open @ %d 8N1", D50_BAUD);
+        xSemaphoreGive(s_dev_ready);
+    } catch (const std::exception &e) {
+        ESP_LOGW(TAG, "D50 not on USB yet (%s); will retry", e.what());
+        s_vcp.reset();
+    }
 }
 
 // Pull the data log (C4), push samples newer than *watermark, advance it.
@@ -274,7 +295,11 @@ static void sntp_start(void) {
 
 // ---- main loop ----
 extern "C" void app_main(void) {
-    ESP_ERROR_CHECK(nvs_flash_init());
+    esp_err_t nvs = nvs_flash_init();
+    if (nvs == ESP_ERR_NVS_NO_FREE_PAGES || nvs == ESP_ERR_NVS_NEW_VERSION_FOUND) {
+        ESP_ERROR_CHECK(nvs_flash_erase());
+        ESP_ERROR_CHECK(nvs_flash_init());
+    }
 
     if (USB_VBUS_EN_GPIO >= 0) {
         gpio_set_direction((gpio_num_t)USB_VBUS_EN_GPIO, GPIO_MODE_OUTPUT);

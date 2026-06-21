@@ -23,7 +23,7 @@
 // The D50 stores local wall-clock; we keep TZ consistent so event/sample epoch
 // timestamps line up with the rest of your stack. Set your POSIX TZ string.
 #define NTP_SERVER      "pool.ntp.org"
-#define POSIX_TZ        "PST8PDT,M3.2.0,M11.1.0"   // US Pacific; change as needed
+#define POSIX_TZ        "PST8PDT,M3.2.0,M11.1.0"   // Seattle / US Pacific (DST-aware)
 #define CLOCK_SYNC_HOURS 24                        // re-set the D50 RTC this often
 
 // ---- D50 link ----
