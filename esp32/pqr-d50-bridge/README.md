@@ -21,9 +21,13 @@ here over USB host instead of a PC serial port.
 * **D50:** USB-C #2 (native) → a **USB-C OTG adapter** → cable to the D50's USB
   port. The OTG adapter puts the port in host (DFP) role.
 * **VBUS:** in host mode the S3 must supply 5 V to the D50 (its FT232 is
-  bus-powered). Meter the native port's VBUS while powered from #1 — if ~5 V,
-  you're done; if not, inject 5 V via the OTG adapter, or set `USB_VBUS_EN_GPIO`
-  in `config.h` if your board has a VBUS load-switch.
+  bus-powered). Most dual-USB S3 boards don't route 5 V to the native port by
+  default, so the D50 won't enumerate (`USB devices on bus: 0`). **Fix:** these
+  boards have a **`USB-OTG` solder jumper** that connects 5 V to the host port's
+  VBUS — bridge it and the D50 powers directly off the board (verified on this
+  hardware). Alternatively use a powered USB hub, or set `USB_VBUS_EN_GPIO` if
+  your board has a VBUS load-switch.
+  After bridging, don't plug that port into a PC (it now sources 5 V).
 
 ## Build & flash
 
@@ -36,11 +40,20 @@ support 3.13+ yet). The build pulls the managed components automatically:
 ```bash
 . $IDF_PATH/export.sh
 cd esp32/pqr-d50-bridge
-# edit main/config.h: WiFi creds + Grafana Cloud Influx URL/user/token
+cp main/secrets.h.example main/secrets.h   # then fill in WiFi + Grafana creds
+# non-secret settings (TZ, poll interval, measurement names) are in main/config.h
 idf.py set-target esp32s3
 idf.py build
 idf.py -p <COM-port> flash monitor
 ```
+
+Secrets (WiFi SSID/pass, Grafana Cloud Influx URL/user/token) live in
+`main/secrets.h`, which is **gitignored** — never commit it. The Grafana Cloud
+Influx endpoint + numeric user/instance ID + a `metrics:write` Cloud Access
+Policy token come from your stack's "InfluxDB → Send Metrics" page.
+
+Set `PQR_USB_SELFTEST 1` in `config.h` for a USB-only bring-up test (logs the
+D50 over COM, skips WiFi/Grafana); set it back to `0` for normal operation.
 
 **Flash via the "COM" port, not "USB".** On the S3, the native "USB" port
 (USB-Serial-JTAG) shares GPIO19/20 with the USB-OTG controller — once the

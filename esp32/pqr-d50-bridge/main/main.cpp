@@ -14,6 +14,7 @@
 #include <string.h>
 #include <memory>
 #include <exception>
+#include <array>
 
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -45,12 +46,28 @@ extern "C" {
 static const char *TAG = "pqr-bridge";
 using namespace esp_usb;
 
+// Custom FTDI VCP driver for the D50's non-standard PID. The stock FT23x only
+// recognizes FT232(0x6001)/FT231(0x6015); the D50's FT chip reports D50_USB_PID.
+// We reuse the component's ftdi_vcp_open(), just with our PID in the list.
+#if D50_USB_PID
+class D50Ftdi : public CdcAcmDevice {
+public:
+    D50Ftdi(uint16_t pid, const cdc_acm_host_device_config_t *cfg, uint8_t idx = 0) {
+        const esp_err_t err = ftdi_vcp_open(pid, idx, cfg, &this->cdc_hdl);
+        if (err != ESP_OK) throw (err);
+    }
+    static constexpr uint16_t vid = FTDI_VID;
+    static constexpr std::array<uint16_t, 1> pids = { D50_USB_PID };
+};
+#endif
+
 // ---- RX accumulation (the VCP data callback feeds this) ----
 static uint8_t  s_rx[8192];
 static volatile size_t   s_rx_len = 0;
 static volatile int64_t  s_rx_last_us = 0;
 static std::unique_ptr<CdcAcmDevice> s_vcp;
 static SemaphoreHandle_t s_dev_ready;
+static char s_unit_id[16] = "unknown";   // the D50's own ID, used as the metric tag
 
 static bool rx_cb(const uint8_t *data, size_t len, void *arg) {
     if (s_rx_len + len <= sizeof(s_rx)) {
@@ -207,30 +224,43 @@ static void usb_lib_task(void *arg) {
 
 static void open_d50(void) {
     cdc_acm_host_device_config_t dev_cfg = {};
-    dev_cfg.connection_timeout_ms = 5000;
+    dev_cfg.connection_timeout_ms = 2000;
     dev_cfg.out_buffer_size = 512;
-    dev_cfg.in_buffer_size = 512;
+    dev_cfg.in_buffer_size = 0;             // FTDI driver requires 0 (it warns otherwise)
     dev_cfg.event_cb = handle_event;
     dev_cfg.data_cb = rx_cb;
     dev_cfg.user_arg = NULL;
 
-    VCP::register_driver<FT23x>();          // FTDI VCP (D50's internal FT232)
     try {
-        // VCP::open throws (esp_usb uses C++ exceptions) until the D50 enumerates
-        s_vcp.reset(VCP::open(&dev_cfg));
-        cdc_acm_line_coding_t lc = {};
-        lc.dwDTERate = D50_BAUD;
-        lc.bCharFormat = 0;   // 1 stop bit
-        lc.bParityType = 0;   // none
-        lc.bDataBits = 8;
-        s_vcp->line_coding_set(&lc);
-        s_vcp->set_control_line_state(true, true);  // DTR, RTS
-        ESP_LOGI(TAG, "D50 VCP open @ %d 8N1", D50_BAUD);
-        xSemaphoreGive(s_dev_ready);
+        s_vcp.reset(VCP::open(&dev_cfg));   // returns null (no throw) if no match
     } catch (const std::exception &e) {
-        ESP_LOGW(TAG, "D50 not on USB yet (%s); will retry", e.what());
+        ESP_LOGW(TAG, "VCP open threw: %s", e.what());
         s_vcp.reset();
     }
+    if (!s_vcp) { ESP_LOGW(TAG, "D50 not opened yet; will retry"); return; }
+
+    cdc_acm_line_coding_t lc = {};
+    lc.dwDTERate = D50_BAUD;
+    lc.bCharFormat = 0;   // 1 stop bit
+    lc.bParityType = 0;   // none
+    lc.bDataBits = 8;
+    s_vcp->line_coding_set(&lc);
+    s_vcp->set_control_line_state(true, true);  // DTR, RTS
+    ESP_LOGI(TAG, "D50 VCP open @ %d 8N1", D50_BAUD);
+    xSemaphoreGive(s_dev_ready);
+}
+
+// Read the C1 identity and store the D50's unit ID for use as the metric tag.
+static void fetch_unit_id(void) {
+    size_t n = d50_xfer("C1", 2, 600, 3000);
+    if (n >= sizeof(s_rx)) n = sizeof(s_rx) - 1;
+    s_rx[n] = 0;
+    d50_ident_t id;
+    if (d50_parse_ident((char *)s_rx, n, &id) && id.unit_id[0]) {
+        strncpy(s_unit_id, id.unit_id, sizeof(s_unit_id) - 1);
+        s_unit_id[sizeof(s_unit_id) - 1] = 0;
+    }
+    ESP_LOGI(TAG, "D50 unit=%s model=%s fw=%s", s_unit_id, id.model, id.firmware);
 }
 
 // Pull the data log (C4), push samples newer than *watermark, advance it.
@@ -248,7 +278,7 @@ static void process_datalog(int64_t *watermark, bool send) {
         if (!send) continue;
         char line[160];
         int w = influx_format_sample(line, sizeof(line), INFLUX_MEASUREMENT,
-                                     INFLUX_USER, &samples[i], ts);
+                                     s_unit_id, &samples[i], ts);
         if (w < 0 || bl + w + 1 >= sizeof(body)) break;
         memcpy(body + bl, line, w); bl += w; body[bl++] = '\n';
         pushed++;
@@ -272,7 +302,7 @@ static void process_events(int64_t *watermark, bool send) {
         if (!send) continue;
         char line[160];
         int w = influx_format_event(line, sizeof(line), INFLUX_EVENT_MEASUREMENT,
-                                    INFLUX_USER, &events[i], ts);
+                                    s_unit_id, &events[i], ts);
         if (w < 0 || bl + w + 1 >= sizeof(body)) break;
         memcpy(body + bl, line, w); bl += w; body[bl++] = '\n';
         pushed++;
@@ -293,6 +323,43 @@ static void sntp_start(void) {
     ESP_LOGI(TAG, "SNTP time: %s", ctime(&now));
 }
 
+// How many USB devices are currently enumerated on the host bus. 0 => nothing
+// powered/enumerated (suspect VBUS/OTG); >=1 => a device is present.
+static int usb_device_count(void) {
+    uint8_t addrs[16]; int n = 0;
+    usb_host_device_addr_list_fill(sizeof(addrs), addrs, &n);
+    return n;
+}
+
+// Diagnostic: prove the USB-host link to the D50 without WiFi/Grafana.
+static void usb_selftest(void) {
+    ESP_LOGI(TAG, "=== USB SELF-TEST: connect the D50 to the native USB port ===");
+    while (!s_vcp) {
+        int n = usb_device_count();
+        ESP_LOGI(TAG, "USB devices on bus: %d %s", n,
+                 n == 0 ? "(none - check VBUS/OTG power to the D50)" : "");
+        open_d50();
+        if (!s_vcp) vTaskDelay(pdMS_TO_TICKS(2000));
+    }
+    ESP_LOGI(TAG, "*** D50 ENUMERATED on USB host ***");
+    while (true) {
+        d50_reset();
+        size_t n = d50_xfer("C1", 2, 600, 3000);
+        if (n >= sizeof(s_rx)) n = sizeof(s_rx) - 1;
+        s_rx[n] = 0;
+        ESP_LOGI(TAG, "C1 identity: %.110s", (char *)s_rx);
+
+        static d50_sample_t samples[64];
+        n = d50_xfer("C4", 2, 1500, 30000);
+        size_t cnt = d50_parse_datalog((char *)s_rx, n, samples, 64);
+        ESP_LOGI(TAG, "C4 data log: %u samples", (unsigned)cnt);
+        if (cnt) ESP_LOGI(TAG, "  latest: %s %s  hot=%.1f V  neu=%.1f V",
+                          samples[cnt - 1].date, samples[cnt - 1].time,
+                          samples[cnt - 1].ch1_value, samples[cnt - 1].ch2_value);
+        vTaskDelay(pdMS_TO_TICKS(10000));
+    }
+}
+
 // ---- main loop ----
 extern "C" void app_main(void) {
     esp_err_t nvs = nvs_flash_init();
@@ -306,7 +373,9 @@ extern "C" void app_main(void) {
         gpio_set_level((gpio_num_t)USB_VBUS_EN_GPIO, 1);   // enable 5V to device
     }
 
+#if !PQR_USB_SELFTEST
     wifi_start();
+#endif
 
     s_dev_ready = xSemaphoreCreateBinary();
     usb_host_config_t host_cfg = {};
@@ -314,6 +383,15 @@ extern "C" void app_main(void) {
     ESP_ERROR_CHECK(usb_host_install(&host_cfg));
     xTaskCreate(usb_lib_task, "usb_lib", 4096, NULL, 10, NULL);
     ESP_ERROR_CHECK(cdc_acm_host_install(NULL));
+
+    VCP::register_driver<FT23x>();          // stock FTDI PIDs (0x6001/0x6015)
+#if D50_USB_PID
+    VCP::register_driver<D50Ftdi>();        // the D50's actual PID
+#endif
+
+#if PQR_USB_SELFTEST
+    usb_selftest();   // never returns; diagnostic only
+#endif
 
     xEventGroupWaitBits(s_wifi_eg, WIFI_CONNECTED_BIT, false, true, portMAX_DELAY);
     ESP_LOGI(TAG, "WiFi up");
@@ -326,6 +404,7 @@ extern "C" void app_main(void) {
     // prime watermarks from the current logs so we don't backfill old samples
     // (Grafana Cloud/Mimir rejects samples older than ~1h).
     d50_reset();
+    fetch_unit_id();          // tag metrics with the D50's own ID
     d50_set_clock();
     int64_t sample_wm = 0, event_wm = 0;
     process_datalog(&sample_wm, false);

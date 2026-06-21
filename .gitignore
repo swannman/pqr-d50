@@ -25,3 +25,6 @@ esp32/**/test/host_test
 # editor / clangd cache
 .cache/
 compile_commands.json
+
+# firmware secrets
+esp32/**/secrets.h
