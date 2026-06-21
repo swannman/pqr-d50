@@ -384,7 +384,9 @@ static void push_events_loki(void) {
 
         int64_t ts = d50_event_ns(&evs[i]);
         char line[128];
-        snprintf(line, sizeof(line), "type=%s channel=%s magnitude=%.1f plot_v=%.1f",
+        // plot_v rounded to whole volts so a drifting baseline doesn't change the
+        // line each poll (keeps Loki's identical-entry de-dup working).
+        snprintf(line, sizeof(line), "type=%s channel=%s magnitude=%.1f plot_v=%.0f",
                  type, evs[i].channel, evs[i].magnitude, plot_v);
         int w = snprintf(body + bl, sizeof(body) - bl, "%s[\"%lld\",\"%s\"]",
                          added ? "," : "", (long long)ts, line);
