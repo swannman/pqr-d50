@@ -1,109 +1,157 @@
 """
-Best-effort parsers for the report payloads returned by the PQR device.
+Parsers for the PQR D50 ASCII reports, written against real captured output.
 
-IMPORTANT: the field *contents* below are confirmed from PQRHost.hlp, but the
-exact byte/record encoding of the streamed reports was not fully recoverable by
-static analysis alone (the device was not present). These parsers therefore try
-both an ASCII/CSV interpretation and expose the raw bytes so you can finalise
-them with a real capture (see capture.py). When you confirm the layout, tighten
-``_RECORD_*`` below.
+All three reports share a banner line:
+    PowerTronics PQR D50 V20.55   - <Report Type> as of <Date> - ID: <id>
 
-From the help file:
-  * Detail Report  (.drp): one row per disturbance =
-        date, time, phase, event type, magnitude
-  * Summary Report (.srp): one row per (phase, event type, magnitude) =
-        phase, event type, magnitude, count
-  * Data Log       (.dlg): voltage time-history samples
+Then comma-delimited rows (line terminators vary between report types: the
+device uses CRLF, LFCR, and CRCRLF in different places, so we split on any run
+of CR/LF).  Confirmed row shapes (PQR D50 V20.55):
+
+  Summary  (C2 / .srp):  "<channel>, <event>, <count>"
+        e.g.  "   Hot,   Power Failure, 1"
+  Detail   (C3 / .drp):  "<date>, <time>, <channel>, <event>, <magnitude>,"
+        e.g.  "Jun/10/26, 13:56:40.69, Hot,        Sag Start, 70.1,"
+  Data Log (C4 / .dlg):  "<date>, <time>, <ch1>, <v1>, <ch2>, <v2>,"
+        e.g.  "Jun/21/26, 11:28:05, Hot, 121.1, Neu, 0.0,"
 """
 
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass
-from typing import List
+from dataclasses import dataclass, field
+from typing import List, Optional
 
 
-# Event-type vocabulary seen in the binary (phase sag/swell/drop on V and I).
-EVENT_TYPES = (
-    "PH1 Sag", "PH2 Sag", "PH3 Sag",
-    "PH1 Current Sag", "PH2 Current Sag", "PH3 Current Sag",
-    "PH1 Current Swell", "PH2 Current Swell", "PH3 Current Swell",
-    "PH1 Current Drop", "PH2 Current Drop", "PH3 Current Drop",
+# --- banner ---------------------------------------------------------------
+_BANNER_RE = re.compile(
+    r"PowerTronics\s+PQR\s+(?P<model>\S+)\s+V(?P<fw>[\d.]+)\s+"
+    r".*?(?:as of|\*\*.*?\*\*)\s+(?P<date>\S+)\s*-\s*ID:\s*(?P<id>\d+)"
 )
+
+
+@dataclass
+class ReportHeader:
+    model: Optional[str] = None
+    firmware: Optional[str] = None
+    date: Optional[str] = None
+    unit_id: Optional[str] = None
+    report_type: Optional[str] = None
+    raw: str = ""
+
+
+def parse_header(raw: bytes) -> ReportHeader:
+    text = raw.decode("latin1", "replace")
+    m = _BANNER_RE.search(text)
+    h = ReportHeader(raw=text.splitlines()[0] if text.strip() else "")
+    if m:
+        h.model = m.group("model")
+        h.firmware = m.group("fw")
+        h.date = m.group("date")
+        h.unit_id = m.group("id")
+    rt = re.search(r"-\s*([A-Za-z ]+?)\s+as of", text)
+    if rt:
+        h.report_type = rt.group(1).strip()
+    return h
+
+
+# --- records --------------------------------------------------------------
+@dataclass
+class SummaryRow:
+    channel: str
+    event_type: str
+    count: int
+    raw: str = ""
 
 
 @dataclass
 class DetailEvent:
     date: str
     time: str
-    phase: str
+    channel: str
     event_type: str
-    magnitude: str
-    raw: str = ""
-
-
-@dataclass
-class SummaryRow:
-    phase: str
-    event_type: str
-    magnitude: str
-    count: str
+    magnitude: float
     raw: str = ""
 
 
 @dataclass
 class DataLogSample:
-    timestamp: str
-    value: str
+    date: str
+    time: str
+    ch1_name: str
+    ch1_value: float
+    ch2_name: str
+    ch2_value: float
     raw: str = ""
 
 
-def _ascii_rows(raw: bytes) -> List[str]:
-    """Split a payload into printable rows, tolerating CR, LF, or CRLF."""
+@dataclass
+class Report:
+    header: ReportHeader
+    rows: list = field(default_factory=list)
+    raw: bytes = b""
+
+
+def _rows(raw: bytes) -> List[str]:
+    """Split into trimmed, non-empty rows, tolerating CR/LF/CRLF/LFCR."""
     text = raw.decode("latin1", "replace")
-    rows = re.split(r"[\r\n]+", text)
-    return [r.strip() for r in rows if r.strip()]
+    return [r.strip() for r in re.split(r"[\r\n]+", text) if r.strip()]
 
 
-def parse_detail_report(raw: bytes) -> List[DetailEvent]:
-    """[VALIDATE] Assumes delimited ASCII rows of 5 fields."""
-    out: List[DetailEvent] = []
-    for row in _ascii_rows(raw):
-        parts = re.split(r"[,\t;|]+|\s{2,}", row)
-        if len(parts) >= 5:
-            out.append(DetailEvent(*parts[:5], raw=row))
-        else:
-            out.append(DetailEvent("", "", "", "", "", raw=row))
-    return out
+def _fields(row: str) -> List[str]:
+    return [f.strip() for f in row.split(",")]
 
 
-def parse_summary_report(raw: bytes) -> List[SummaryRow]:
-    """[VALIDATE] Assumes delimited ASCII rows of 4 fields."""
-    out: List[SummaryRow] = []
-    for row in _ascii_rows(raw):
-        parts = re.split(r"[,\t;|]+|\s{2,}", row)
-        if len(parts) >= 4:
-            out.append(SummaryRow(*parts[:4], raw=row))
-        else:
-            out.append(SummaryRow("", "", "", "", raw=row))
-    return out
+def _is_data_row(row: str) -> bool:
+    # Skip the banner and any all-letter heading lines.
+    return "," in row and "PowerTronics" not in row
 
 
-def parse_data_log(raw: bytes) -> List[DataLogSample]:
-    """[VALIDATE] Assumes delimited ASCII timestamp,value rows."""
-    out: List[DataLogSample] = []
-    for row in _ascii_rows(raw):
-        parts = re.split(r"[,\t;|]+|\s{2,}", row)
-        if len(parts) >= 2:
-            out.append(DataLogSample(parts[0], parts[1], raw=row))
-        else:
-            out.append(DataLogSample("", parts[0] if parts else "", raw=row))
-    return out
+def _num(s: str) -> float:
+    try:
+        return float(s)
+    except ValueError:
+        return float("nan")
 
 
-def looks_binary(raw: bytes) -> bool:
-    """Heuristic: is this payload binary (not delimited ASCII)?"""
-    if not raw:
-        return False
-    printable = sum(1 for b in raw if 9 <= b <= 13 or 32 <= b <= 126)
-    return printable / len(raw) < 0.85
+def parse_summary_report(raw: bytes) -> Report:
+    rep = Report(header=parse_header(raw), raw=raw)
+    for row in _rows(raw):
+        if not _is_data_row(row):
+            continue
+        f = _fields(row)
+        if len(f) >= 3:
+            try:
+                count = int(f[2])
+            except ValueError:
+                count = 0
+            rep.rows.append(SummaryRow(f[0], f[1], count, raw=row))
+    return rep
+
+
+def parse_detail_report(raw: bytes) -> Report:
+    rep = Report(header=parse_header(raw), raw=raw)
+    for row in _rows(raw):
+        if not _is_data_row(row):
+            continue
+        f = _fields(row)
+        # trailing comma yields an empty last field; need at least 5 real ones
+        if len(f) >= 5:
+            rep.rows.append(DetailEvent(
+                date=f[0], time=f[1], channel=f[2],
+                event_type=f[3], magnitude=_num(f[4]), raw=row))
+    return rep
+
+
+def parse_data_log(raw: bytes) -> Report:
+    rep = Report(header=parse_header(raw), raw=raw)
+    for row in _rows(raw):
+        if not _is_data_row(row):
+            continue
+        f = _fields(row)
+        if len(f) >= 6:
+            rep.rows.append(DataLogSample(
+                date=f[0], time=f[1],
+                ch1_name=f[2], ch1_value=_num(f[3]),
+                ch2_name=f[4], ch2_value=_num(f[5]), raw=row))
+    return rep

@@ -1,35 +1,25 @@
 # pqr-d50
 
 A Linux / Raspberry-Pi driver for **Powertronics PQR-series** power-line
-monitors (PQR **D50** and relatives D52 / D200 / PST / C90).
+monitors. The vendor's only software (`PQRHost.exe`) is Windows-only; this is a
+clean-room Python reimplementation of its serial protocol, **reverse-engineered
+from that binary and validated live, byte-for-byte, against a PQR D50
+(firmware V20.55).**
 
-The vendor's only software, `PQRHost.exe`, is Windows-only. This is a clean
-reimplementation of its serial protocol in pure Python, reverse-engineered from
-that binary so you can pull data off the device from a Pi (or any Linux box)
-over a USB-serial adapter. See [`docs/PROTOCOL.md`](docs/PROTOCOL.md) for the
-full protocol analysis and confidence levels.
-
-## Status
-
-The serial link, command set, and framing are **confirmed from the binary** and
-should work as-is. The exact record layout of the streamed reports could not be
-finalised without the physical device, so report parsing is best-effort and the
-raw bytes are always preserved. When your D50 arrives, run `capture.py` to record
-real exchanges and tighten the parsers — see [Validating](#validating-with-the-real-device).
+Full protocol writeup: [`docs/PROTOCOL.md`](docs/PROTOCOL.md).
 
 ## Hardware
 
-* PQR D50 with its serial port (DB9 / terminal — RS-232 levels).
-* A **USB-to-RS-232 serial adapter** on the Pi (e.g. FTDI), appearing as
-  `/dev/ttyUSB0`. (A TTL-only USB-serial cable will **not** work against true
-  RS-232 levels — use an RS-232 adapter or a MAX3232 level shifter.)
+* PQR D50 (relatives D52/D200/PST/C90 share the protocol; field shapes may vary).
+* A **USB-to-RS-232** adapter (true RS-232 levels, e.g. FTDI) on the Pi →
+  `/dev/ttyUSB0` (`/dev/cu.usbserial-*` on macOS). A 3.3 V TTL cable will *not*
+  work.
 
 ## Install
 
 ```bash
 pip install pyserial
-git clone <this-repo> && cd pqr-d50
-pip install -e .            # optional, installs the `pqr_d50` package
+git clone <this-repo> && cd pqr-d50 && pip install -e .
 ```
 
 ## Usage
@@ -37,55 +27,73 @@ pip install -e .            # optional, installs the `pqr_d50` package
 ```python
 from pqr_d50 import PQRClient
 
-with PQRClient("/dev/ttyUSB0", baudrate=9600) as dev:
-    info = dev.connect()                 # C1 — identify
-    print("model:", info.model, "vendor:", info.vendor)
+with PQRClient("/dev/ttyUSB0", baudrate=19200) as dev:
+    dev.reset()                         # sync to a known state
+    info = dev.identify()               # C1
+    print(info.model, info.firmware, info.unit_id)
 
-    dev.detail_report().save("events.drp")   # C3
-    dev.summary_report().save("counts.srp")  # C2
-    dev.data_log().save("voltage.dlg")       # C4
+    for ev in dev.detail_report().rows:        # C3
+        print(ev.date, ev.time, ev.channel, ev.event_type, ev.magnitude)
 
-    # live readings (~1/s, auto-stops ~2 min; Ctrl-C to stop early)
-    for line in dev.calibration_stream(duration_s=10):   # C5
-        print(line)
+    for s in dev.data_log().rows:              # C4 (Hot + Neutral volts)
+        print(s.date, s.time, s.ch1_value, s.ch2_value)
+
+    print(dev.summary_report().rows)           # C2 (event counts)
 ```
 
-Don't know the baud rate? Let it sweep:
+Settings (the `C6` menu):
 
 ```python
-dev = PQRClient("/dev/ttyUSB0")
-print("locked at", dev.autobaud(), "baud")
+from datetime import datetime
+
+dev.get_settings()                 # -> Settings(datetime, baud, sample_rate_s)
+dev.set_datetime(datetime.now())   # sync the clock
+dev.set_sample_rate(1)             # 1s logging  *** erases the data log ***
+dev.set_thresholds({("CH1","Sag"): 100, ("CH1","Surge"): 0})  # volts / 0=default
+dev.set_baud(9600)                 # switches the unit AND reopens the port
 ```
 
-## Validating with the real device
+Destructive — guarded:
 
-```bash
-# auto-detect baud and capture every report to ./captures/ as raw + hexdump
-python3 capture.py --port /dev/ttyUSB0 --autobaud --all
-
-# 30-second passive sniff (see what the unit emits unprompted)
-python3 capture.py --port /dev/ttyUSB0 --baud 9600 --sniff 30
+```python
+dev.clear_data(confirm=True)       # C5: erases all events + data log
 ```
 
-Send the resulting `captures/*.drp/.srp/.dlg` files back into
-`pqr_d50/parsers.py` to lock down the field encodings.
+Unknown baud? `dev.autobaud()` sweeps the supported rates.
+
+### Near-real-time
+
+The D50 has no live-readings command. Set the sample rate to 1 second and poll
+the data log:
+
+```python
+dev.set_sample_rate(1)
+while True:
+    for s in dev.data_log().rows[-5:]:
+        print(s.time, s.ch1_value, s.ch2_value)
+    time.sleep(5)
+```
 
 ## Protocol at a glance
 
-| Command | Function                          |
-|--------:|-----------------------------------|
-| `C1`    | connect / identify                |
-| `C2`    | summary report (event counts)     |
-| `C3`    | detail report (event listing)     |
-| `C4`    | data log (voltage time-history)   |
-| `C5`    | calibration / real-time readings  |
-| `C6`    | settings / programming            |
+| Cmd | Function                         |
+|-----|----------------------------------|
+| C1  | identify                         |
+| C2  | summary report (event counts)    |
+| C3  | detail report (event listing)    |
+| C4  | data log (Hot/Neutral voltages)  |
+| C5  | **clear all data** (destructive) |
+| C6  | setup menu (date/baud/rate/thresholds) |
 
-Link: **8N1**, baud ∈ {1200, 2400, 4800, 9600, 14400, 19200}.
-`ESC` aborts a transfer; `CR` terminates programming parameters.
+Link: **8N1**, baud ∈ {2400, 4800, 9600, 14400, 19200, 115200}, default 19200.
+
+## Tools
+
+* `capture.py` — dump raw exchanges (diagnostics / other firmware).
+* `tools/pqrdev.py` — low-level live-exploration helper used during RE.
 
 ## License
 
 MIT — see [LICENSE](LICENSE). Powertronics and PQR are trademarks of their
-respective owner; this project is an independent, interoperability-only
-reimplementation and ships no vendor code.
+owner; this is an independent, interoperability-only reimplementation that ships
+no vendor code.

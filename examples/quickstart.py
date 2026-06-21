@@ -1,30 +1,31 @@
 #!/usr/bin/env python3
-"""Minimal end-to-end example: identify the unit and pull a detail report."""
+"""Minimal end-to-end example against a PQR D50."""
 
 import sys
-
 from pqr_d50 import PQRClient
-from pqr_d50.parsers import parse_detail_report, looks_binary
 
 
 def main(port: str = "/dev/ttyUSB0") -> int:
-    with PQRClient(port, baudrate=9600) as dev:
-        info = dev.connect()
-        print(f"connected: model={info.model!r} vendor={info.vendor!r} "
-              f"raw={info.raw!r}")
+    with PQRClient(port, baudrate=19200) as dev:
+        dev.reset()
 
-        xfer = dev.detail_report()
-        print(f"detail report: {len(xfer.raw)} bytes "
-              f"({xfer.blocks} reads, {xfer.elapsed_s:.1f}s)")
-        xfer.save("events.drp")
+        info = dev.identify()
+        print(f"connected: {info.model} fw{info.firmware} "
+              f"(id {info.unit_id}, clock {info.date})")
 
-        if looks_binary(xfer.raw):
-            print("payload looks binary — capture it with capture.py to map the "
-                  "record layout before parsing.")
-        else:
-            for ev in parse_detail_report(xfer.raw)[:20]:
-                print(f"  {ev.date} {ev.time}  ph{ev.phase}  "
-                      f"{ev.event_type}  {ev.magnitude}")
+        s = dev.get_settings()
+        print(f"settings: clock={s.datetime}  baud={s.baud}  "
+              f"sample_rate={s.sample_rate_s}s")
+
+        print("\n-- recent events (detail report) --")
+        for ev in dev.detail_report().rows[:20]:
+            print(f"  {ev.date} {ev.time}  {ev.channel:>3}  "
+                  f"{ev.event_type:<14} {ev.magnitude:>6}")
+
+        print("\n-- data log (voltage history) --")
+        for s in dev.data_log().rows[:10]:
+            print(f"  {s.date} {s.time}  {s.ch1_name} {s.ch1_value:>6}  "
+                  f"{s.ch2_name} {s.ch2_value:>5}")
     return 0
 
 

@@ -1,92 +1,124 @@
 """
-Wire-protocol constants for the Powertronics PQR-series power-line monitors
-(PQR D50 / D52 / D200 / PST / C90 ...).
+Wire-protocol constants for the Powertronics PQR-series power-line monitors,
+validated live against a **PQR D50, firmware V20.55**.
 
-Everything in this module was recovered by static reverse-engineering of the
-Windows host program ``PQRHost.exe`` v2.1.5 (a native-compiled Visual Basic 6
-application that drives the device over an RS-232 serial port via the
-MSComm32 OCX).  See ``docs/PROTOCOL.md`` for the full analysis and the
-confidence level of each item.
+Recovered by reverse-engineering the Windows host ``PQRHost.exe`` v2.1.5 (native
+VB6 / MSComm32, RS-232) and then confirmed byte-for-byte against real hardware.
+See ``docs/PROTOCOL.md`` for the full analysis and transcripts.
 
-Confidence legend used in comments:
-    [CONFIRMED] - extracted directly from the binary, high confidence
-    [LIKELY]    - strongly implied by the binary + help file, not yet seen on the wire
-    [VALIDATE]  - placeholder / hypothesis; confirm against a real device with capture.py
+Confidence legend:
+    [CONFIRMED]  - seen on the wire against a real PQR D50 V20.55
+    [BINARY]     - from the host binary; not exercised live on this unit
+    [MODEL-DEP]  - applies to other models in the family, not the D50 V20.55
 """
 
 from enum import Enum
 
-# --- Serial line settings -------------------------------------------------
-# [CONFIRMED] The host builds its MSComm "Settings" string as
-#   "<baud>,N,8,1"  (the literal ",N,8,1" lives at .text va 0x40d8f0).
-# => No parity, 8 data bits, 1 stop bit.
+# --- Serial line settings  [CONFIRMED] -----------------------------------
+# Host builds its MSComm "Settings" as "<baud>,N,8,1" => 8 data, no parity, 1 stop.
 BYTESIZE = 8
-PARITY = "N"          # none
+PARITY = "N"
 STOPBITS = 1
 
-# [CONFIRMED] The "Set Baud Rate" dialog (PQRHost.hlp) offers exactly these six.
-SUPPORTED_BAUD_RATES = (1200, 2400, 4800, 9600, 14400, 19200)
-
-# [LIKELY] 9600 is the conventional default for this generation of meters and
-# is the value the host preselects.  If a fresh unit does not answer at 9600,
-# sweep SUPPORTED_BAUD_RATES (see PQRClient.autobaud()).
-DEFAULT_BAUD_RATE = 9600
+# [CONFIRMED] The D50 V20.55 came up at 19200. Its own baud menu (C6 option 2)
+# offers these six (note: this firmware supports 115200 and dropped the old
+# 1200 that older host builds listed):
+SUPPORTED_BAUD_RATES = (2400, 4800, 9600, 14400, 19200, 115200)
+DEFAULT_BAUD_RATE = 19200
 
 
-# --- Framing bytes --------------------------------------------------------
-# [CONFIRMED] Chr(27)/ESC is sent on its own to abort an in-progress transfer
-# (it is built next to the "Cancelling download..." string).
-ESC = b"\x1b"
-
-# [CONFIRMED] Chr(13)/CR is used as the terminator when the host streams
-# parameter values to the device (set-time / set-threshold / set-baud paths).
-CR = b"\x0d"
+# --- Framing bytes  [CONFIRMED] ------------------------------------------
+ESC = b"\x1b"   # exits the *main* setup menu; IGNORED inside sub-prompts
+CR = b"\x0d"    # terminates command-mode commands and menu field entries
 
 
-# --- Command set ----------------------------------------------------------
-# [CONFIRMED] The host writes two-character ASCII commands "C1".."C6" to
-# MSComm.Output.  Each was located at a distinct .text string constant and
-# cross-referenced to its handler:
+# --- Command set  [CONFIRMED] --------------------------------------------
+# Two-character ASCII commands written while the device is in "command mode".
+# Each was located in the binary and exercised against the real unit:
 #
-#   C1  -> connect / identify   (handler also references "PowerTronics","Omega")
-#   C2  -> Summary Report dump   (handler writes a ".srp" file)
-#   C3  -> Detail Report dump    (handler writes a ".drp" file)
-#   C4  -> Data Log dump         (handler writes a ".dlg" file)
-#   C5  -> Calibration / real-time readings stream
-#   C6  -> settings/programming  (used by every Set-* handler, which then
-#                                 streams parameter digits terminated by CR)
+#   C1 -> identity banner
+#   C2 -> Summary Report  (event counts)     ASCII, ends the host's ".srp" file
+#   C3 -> Detail Report   (event listing)    ASCII, host ".drp"
+#   C4 -> Data Log        (voltage history)  ASCII, host ".dlg"
+#   C5 -> CLEAR ALL DATA  (destructive!)     prompts "Are You Sure ... ?"  -> "Y"
+#   C6 -> Setup Menu      (interactive)      options 1..4, ESC to exit
+#
+# There is no C0/C7+; every other byte is ignored in command mode.
 class Command(bytes, Enum):
-    CONNECT       = b"C1"   # [CONFIRMED] handshake / identify the unit
-    SUMMARY_REPORT = b"C2"  # [CONFIRMED] download event counts  -> .srp
-    DETAIL_REPORT = b"C3"   # [CONFIRMED] download event listing -> .drp
-    DATA_LOG      = b"C4"   # [CONFIRMED] download voltage time-history -> .dlg
-    CALIBRATION   = b"C5"   # [CONFIRMED] begin real-time readings stream
-    PROGRAM       = b"C6"   # [CONFIRMED] enter settings/programming path
+    IDENTIFY       = b"C1"   # identity / connection check
+    SUMMARY_REPORT = b"C2"   # event-count summary
+    DETAIL_REPORT  = b"C3"   # full event listing
+    DATA_LOG       = b"C4"   # voltage time-history at the logging sample rate
+    CLEAR_DATA     = b"C5"   # *** ERASES all events + data log *** (confirm "Y")
+    SETUP_MENU     = b"C6"   # interactive settings menu
 
 
-# --- Device status / response tokens -------------------------------------
-# [CONFIRMED] These ASCII tokens are referenced by the response-parsing code.
-# They are the device's short status replies.
+# --- Setup menu (C6) option codes  [CONFIRMED] ---------------------------
+class SetupOption(bytes, Enum):
+    DATE_TIME    = b"1"   # prompt: MM/DD/YY,HH:MM:SS  -> "Command OK"
+    BAUD_RATE    = b"2"   # pick 1..6 from the baud list below
+    SAMPLE_RATE  = b"3"   # pick 1..6 from the sample-rate list (ERASES log!)
+    THRESHOLDS   = b"4"   # 6 sequential prompts CH1/CH2 x {Surge,Sag,PowerFail}
+
+
+# [CONFIRMED] C6 option 2 baud picker: digit -> rate.
+BAUD_MENU = {
+    b"1": 115200, b"2": 2400, b"3": 4800,
+    b"4": 9600,   b"5": 14400, b"6": 19200,
+}
+BAUD_MENU_INV = {v: k for k, v in BAUD_MENU.items()}
+
+# [CONFIRMED] C6 option 3 data-log sample-rate picker: digit -> seconds.
+# NOTE: changing the sample rate erases the FLASH data-log banks.
+SAMPLE_RATE_MENU = {
+    b"1": 1, b"2": 5, b"3": 10,
+    b"4": 30, b"5": 60, b"6": 240,
+}
+SAMPLE_RATE_MENU_INV = {v: k for k, v in SAMPLE_RATE_MENU.items()}
+
+# [CONFIRMED] Threshold entry order (option 4) and value semantics:
+#   blank -> keep current ; "0" -> default (5%,10%) ; "N" -> trip at N volts.
+THRESHOLD_SEQUENCE = (
+    ("CH1", "Surge"), ("CH1", "Sag"), ("CH1", "PowerFail"),
+    ("CH2", "Surge"), ("CH2", "Sag"), ("CH2", "PowerFail"),
+)
+
+
+# --- Response / status tokens  [CONFIRMED] -------------------------------
 class Status(bytes, Enum):
-    OK   = b"OK"
-    BUSY = b"BUSY"
-    DIAL = b"DIAL"     # modem / dial-up linked variants
-    NONE = b"NONE"
+    COMMAND_OK    = b"Command OK"          # date/time set acknowledged
+    OK            = b"OK"                  # generic ack (e.g. "Y OK" on clear)
+    RAM_CLEARED   = b"Ram has been cleared !"
+    SETUP_DONE    = b"Setup Completed"
+    ARE_YOU_SURE  = b"Are You Sure you want to CLEAR ALL DATA on this board ?"
 
 
-# [CONFIRMED] Device/model identifiers the host recognises in a C1 reply.
-KNOWN_MODELS = ("D50", "D52", "D200", "PST", "C90")
+# [CONFIRMED] Device/model + vendor tokens in the C1 banner.
+KNOWN_MODELS = ("D50", "D52", "D200", "PST", "C90", "PDL", "PQR1010")
 VENDOR_TOKENS = ("PowerTronics", "Omega")
 
+# [CONFIRMED] Channel labels the D50 reports (single-phase Hot/Neutral; Ground
+# and Phase 1-3 exist for poly-phase models).  [MODEL-DEP] for PH1-3.
+CHANNELS = ("Hot", "Neu", "Gnd")
+POLYPHASE_CHANNELS = ("Phase 1", "Phase 2", "Phase 3")
 
-# --- Report file extensions the host writes (for reference / compatibility)
+# [CONFIRMED live + BINARY] Event types seen in reports / referenced by the host.
+EVENT_TYPES = (
+    "Sag Start", "Surge", "Sag", "Power Failure", "Power Restore",
+    "Signal Failure",
+    # [MODEL-DEP] poly-phase current/voltage variants:
+    "Current Sag", "Current Swell", "Current Drop", "Power Fail",
+)
+
+
+# --- Report file extensions written by the original host ------------------
 DETAIL_REPORT_EXT = ".drp"
 SUMMARY_REPORT_EXT = ".srp"
 DATA_LOG_EXT = ".dlg"
 
 
-# --- Behavioural constants from PQRHost.hlp -------------------------------
-# [CONFIRMED] The calibration/readings stream updates ~once per second and the
-# device auto-stops after ~2 minutes if not told to stop sooner (send ESC).
-CALIBRATION_UPDATE_PERIOD_S = 1.0
-CALIBRATION_AUTO_STOP_S = 120
+# --- Notes ----------------------------------------------------------------
+# [MODEL-DEP] The host has a "Calibration Mode" that streams real-time readings,
+# but it is NOT wired to any Cn command and the D50 V20.55 does not implement it.
+# For near-real-time data on the D50, set the sample rate to 1 second (C6 opt 3)
+# and poll the Data Log (C4).

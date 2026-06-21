@@ -1,32 +1,31 @@
 """
-PQRClient - a Linux/Raspberry-Pi friendly driver for Powertronics PQR-series
-power-line monitors, reimplementing the serial protocol of the Windows-only
-``PQRHost.exe`` v2.1.5.
+PQRClient - Linux/Raspberry-Pi driver for Powertronics PQR-series power-line
+monitors, validated live against a PQR D50 (firmware V20.55).
 
-Transport: RS-232 (typically via a USB-serial adapter, e.g. /dev/ttyUSB0).
-Dependencies: pyserial  (``pip install pyserial``).
+Transport: RS-232 (USB-serial adapter, e.g. /dev/ttyUSB0 on Linux,
+/dev/cu.usbserial-* on macOS).  Requires pyserial.
 
-Design notes
+Device model
 ------------
-The original host speaks a simple request/response protocol: it writes a short
-ASCII command ("C1".."C6") and then reads a reply.  The bulk transfers
-(C2/C3/C4) stream a sequence of data blocks until the device falls silent; the
-host shows a running "blocks written" counter and lets the user abort with ESC.
-The exact on-wire record layout of those blocks could only be partially
-recovered statically (the device was not present during reverse engineering),
-so the bulk reads here return the *raw* payload plus a best-effort parse, and
-``capture.py`` is provided to record real exchanges and finalise the parsers.
+The unit has two interaction modes:
 
-Everything that drives the link (port settings, command bytes, abort/terminator
-framing, identity handshake) is confirmed from the binary and should work as-is.
+* **command mode** - two-char ASCII commands C1..C6 (see protocol.Command).
+  C1..C4 return ASCII reports; C5 ERASES all data; C6 opens the setup menu.
+* **setup menu (C6)** - an interactive, *stateful* text menu. Sub-prompts
+  ignore ESC (only digits/CR advance them), so navigation must be deliberate.
+  reset() reliably walks back to command mode from any state.
+
+Reports stream until the line goes idle; reads here are idle-terminated.
 """
 
 from __future__ import annotations
 
 import logging
+import re
 import time
 from dataclasses import dataclass, field
-from typing import Iterator, Optional
+from datetime import datetime
+from typing import Dict, Optional, Tuple
 
 try:
     import serial  # pyserial
@@ -36,75 +35,56 @@ except ImportError as exc:  # pragma: no cover
     ) from exc
 
 from . import protocol as P
+from . import parsers
 
 log = logging.getLogger("pqr_d50")
-
-
-@dataclass
-class RawTransfer:
-    """Result of a bulk download (Detail/Summary/Data Log)."""
-    command: bytes
-    raw: bytes
-    blocks: int = 0
-    elapsed_s: float = 0.0
-    aborted: bool = False
-
-    def save(self, path: str) -> None:
-        with open(path, "wb") as fh:
-            fh.write(self.raw)
-
-
-@dataclass
-class DeviceInfo:
-    """Whatever the unit reports in response to the C1 connect command."""
-    raw: bytes
-    model: Optional[str] = None
-    vendor: Optional[str] = None
-    extra: dict = field(default_factory=dict)
-
-    @property
-    def identified(self) -> bool:
-        return self.model is not None or self.vendor is not None
 
 
 class PQRError(Exception):
     pass
 
 
+@dataclass
+class DeviceInfo:
+    raw: bytes
+    model: Optional[str] = None
+    firmware: Optional[str] = None
+    vendor: Optional[str] = None
+    date: Optional[str] = None
+    unit_id: Optional[str] = None
+
+    @property
+    def identified(self) -> bool:
+        return self.model is not None
+
+
+@dataclass
+class Settings:
+    """Current device settings, as shown by the C6 menu."""
+    datetime: Optional[str] = None
+    baud: Optional[int] = None
+    sample_rate_s: Optional[int] = None
+    raw: str = ""
+
+
 class PQRClient:
     """
-    Synchronous driver over a single serial port.
-
     Example
     -------
         from pqr_d50 import PQRClient
-        with PQRClient("/dev/ttyUSB0", baudrate=9600) as dev:
-            info = dev.connect()
-            print("model:", info.model)
-            xfer = dev.detail_report()
-            xfer.save("events.drp")
+        with PQRClient("/dev/ttyUSB0", baudrate=19200) as dev:
+            print(dev.identify())
+            for ev in dev.detail_report().rows:
+                print(ev.date, ev.time, ev.event_type, ev.magnitude)
     """
 
-    def __init__(
-        self,
-        port: str,
-        baudrate: int = P.DEFAULT_BAUD_RATE,
-        *,
-        timeout: float = 1.0,
-        inter_block_idle: float = 2.0,
-        open_now: bool = True,
-    ):
-        if baudrate not in P.SUPPORTED_BAUD_RATES:
-            log.warning(
-                "baudrate %s is not one of the device's supported rates %s",
-                baudrate, P.SUPPORTED_BAUD_RATES,
-            )
+    def __init__(self, port: str, baudrate: int = P.DEFAULT_BAUD_RATE,
+                 *, byte_timeout: float = 0.2, idle: float = 1.2,
+                 open_now: bool = True):
         self.port = port
         self.baudrate = baudrate
-        # `timeout` is the per-read byte timeout; `inter_block_idle` is how long
-        # the line may stay silent before we consider a bulk transfer complete.
-        self.timeout = timeout
-        self.inter_block_idle = inter_block_idle
+        self.byte_timeout = byte_timeout
+        self.idle = idle          # line-quiet seconds = end of a response
         self._ser: Optional[serial.Serial] = None
         if open_now:
             self.open()
@@ -113,22 +93,16 @@ class PQRClient:
     def open(self) -> None:
         if self._ser and self._ser.is_open:
             return
-        # [CONFIRMED] 8N1 framing; mirror the host's "<baud>,N,8,1".
         self._ser = serial.Serial(
-            port=self.port,
-            baudrate=self.baudrate,
-            bytesize=serial.EIGHTBITS,
-            parity=serial.PARITY_NONE,
-            stopbits=serial.STOPBITS_ONE,
-            timeout=self.timeout,
-            write_timeout=2.0,
-        )
+            self.port, self.baudrate,
+            bytesize=serial.EIGHTBITS, parity=serial.PARITY_NONE,
+            stopbits=serial.STOPBITS_ONE, timeout=self.byte_timeout,
+            write_timeout=2.0)
         log.info("opened %s @ %d 8N1", self.port, self.baudrate)
 
     def close(self) -> None:
         if self._ser and self._ser.is_open:
             self._ser.close()
-            log.info("closed %s", self.port)
 
     def __enter__(self) -> "PQRClient":
         self.open()
@@ -137,176 +111,243 @@ class PQRClient:
     def __exit__(self, *exc) -> None:
         self.close()
 
-    # -- low-level I/O -----------------------------------------------------
     @property
     def ser(self) -> serial.Serial:
         if not self._ser or not self._ser.is_open:
             raise PQRError("serial port is not open")
         return self._ser
 
-    def _write(self, data: bytes) -> None:
-        log.debug("TX %r", data)
-        self.ser.reset_input_buffer()
-        self.ser.write(data)
-        self.ser.flush()
-
-    def send_command(self, cmd: bytes, *, terminate: bool = False) -> None:
-        """Write a raw command. Set ``terminate=True`` to append CR."""
-        if isinstance(cmd, P.Command):
-            cmd = cmd.value
-        self._write(cmd + (P.CR if terminate else b""))
-
-    def abort(self) -> None:
-        """[CONFIRMED] Send ESC to cancel an in-progress transfer / stream."""
-        self._write(P.ESC)
-
-    def _read_reply(self, settle: Optional[float] = None) -> bytes:
-        """
-        Read a short reply: accumulate bytes until the line goes idle for
-        ``settle`` seconds (defaults to the configured byte timeout).
-        """
-        settle = self.inter_block_idle if settle is None else settle
+    # -- low-level I/O -----------------------------------------------------
+    def _read_idle(self, idle: Optional[float] = None, maxwait: float = 60.0) -> bytes:
+        idle = self.idle if idle is None else idle
         buf = bytearray()
-        last = time.monotonic()
+        last = t0 = time.monotonic()
         while True:
             chunk = self.ser.read(self.ser.in_waiting or 1)
             if chunk:
                 buf += chunk
                 last = time.monotonic()
-            elif time.monotonic() - last >= settle:
+            elif time.monotonic() - last >= idle:
                 break
-        log.debug("RX %r", bytes(buf))
+            elif time.monotonic() - t0 >= maxwait:
+                log.warning("read hit maxwait (%.0fs)", maxwait)
+                break
         return bytes(buf)
 
-    # -- high-level operations --------------------------------------------
-    def connect(self, retries: int = 2) -> DeviceInfo:
+    def _write(self, data: bytes) -> None:
+        if isinstance(data, P.Command) or isinstance(data, P.SetupOption):
+            data = data.value
+        log.debug("TX %r", data)
+        self.ser.write(data)
+        self.ser.flush()
+
+    def reset(self) -> bool:
         """
-        [CONFIRMED command, VALIDATE parse] Send C1 and parse the identity reply.
+        Return to command mode from ANY menu/sub-prompt state and confirm it.
+
+        Sub-prompts ignore ESC, so we first spam CR (advancing/closing any
+        flow), then ESC (exits the main menu), then verify with C1.
         """
+        for _ in range(30):
+            self._write(P.CR)
+            self._read_idle(0.06, maxwait=0.2)
+        self._write(P.ESC)
+        self._read_idle(0.3, maxwait=1.0)
+        self.ser.reset_input_buffer()
+        self._write(P.Command.IDENTIFY)
+        return b"PowerTronics" in self._read_idle(0.6, maxwait=3.0)
+
+    def raw(self, data: bytes, idle: Optional[float] = None) -> bytes:
+        """Send arbitrary bytes and return the idle-terminated reply."""
+        self.ser.reset_input_buffer()
+        self._write(data)
+        return self._read_idle(idle)
+
+    def _command(self, cmd: P.Command, idle: Optional[float] = None,
+                 maxwait: float = 60.0) -> bytes:
+        self.ser.reset_input_buffer()
+        self._write(cmd)
+        return self._read_idle(idle, maxwait)
+
+    # -- identity ----------------------------------------------------------
+    def identify(self, retries: int = 2) -> DeviceInfo:
+        """[C1] Read the identity banner."""
         for attempt in range(retries + 1):
-            self.send_command(P.Command.CONNECT)
-            reply = self._read_reply(settle=0.5)
-            if reply:
-                return self._parse_identity(reply)
-            log.warning("no reply to C1 (attempt %d/%d)", attempt + 1, retries + 1)
+            raw = self._command(P.Command.IDENTIFY, idle=0.5, maxwait=3.0)
+            if b"PowerTronics" in raw:
+                return self._parse_identity(raw)
             time.sleep(0.2)
-        raise PQRError("device did not respond to connect (C1)")
+        raise PQRError("device did not respond to C1 (identify)")
 
     @staticmethod
-    def _parse_identity(reply: bytes) -> DeviceInfo:
-        text = reply.decode("latin1", "replace")
-        info = DeviceInfo(raw=reply)
-        for m in P.KNOWN_MODELS:
-            if m in text:
-                info.model = m
-                break
+    def _parse_identity(raw: bytes) -> DeviceInfo:
+        text = raw.decode("latin1", "replace")
+        info = DeviceInfo(raw=raw)
+        m = re.search(r"PowerTronics\s+PQR\s+(\S+)\s+V([\d.]+)", text)
+        if m:
+            info.model, info.firmware = m.group(1), m.group(2)
         for v in P.VENDOR_TOKENS:
             if v in text:
                 info.vendor = v
                 break
+        d = re.search(r"([A-Z][a-z]{2}/\d{2}/\d{2})", text)
+        if d:
+            info.date = d.group(1)
+        i = re.search(r"ID:\s*(\d+)", text)
+        if i:
+            info.unit_id = i.group(1)
         return info
 
-    def _bulk_download(self, cmd: P.Command) -> RawTransfer:
+    # -- reports (read-only) ----------------------------------------------
+    def summary_report(self) -> parsers.Report:
+        """[C2] Event-count summary."""
+        return parsers.parse_summary_report(self._command(P.Command.SUMMARY_REPORT))
+
+    def detail_report(self) -> parsers.Report:
+        """[C3] Full event listing."""
+        return parsers.parse_detail_report(self._command(P.Command.DETAIL_REPORT))
+
+    def data_log(self) -> parsers.Report:
+        """[C4] Voltage time-history at the configured sample rate."""
+        return parsers.parse_data_log(self._command(P.Command.DATA_LOG))
+
+    # -- destructive -------------------------------------------------------
+    def clear_data(self, confirm: bool = False) -> bool:
         """
-        Shared logic for the three streaming dumps (C2/C3/C4).  Reads blocks
-        until the line stays idle for ``inter_block_idle`` seconds.
+        [C5] ERASE all events and the data log. Pass ``confirm=True``.
+
+        The device prompts "Are You Sure ... ?"; we answer "Y", it erases the
+        FLASH banks and replies "Ram has been cleared !".
         """
-        t0 = time.monotonic()
-        self.send_command(cmd)
-        raw = bytearray()
-        blocks = 0
-        last = time.monotonic()
-        aborted = False
-        try:
-            while True:
-                chunk = self.ser.read(self.ser.in_waiting or 1)
-                if chunk:
-                    raw += chunk
-                    blocks += 1
-                    last = time.monotonic()
-                elif time.monotonic() - last >= self.inter_block_idle:
-                    break
-        except KeyboardInterrupt:
-            self.abort()
-            aborted = True
-        return RawTransfer(
-            command=cmd.value,
-            raw=bytes(raw),
-            blocks=blocks,
-            elapsed_s=time.monotonic() - t0,
-            aborted=aborted,
-        )
+        if not confirm:
+            raise PQRError(
+                "clear_data() is destructive; call clear_data(confirm=True)")
+        self.ser.reset_input_buffer()
+        self._write(P.Command.CLEAR_DATA)
+        prompt = self._read_idle(0.8, maxwait=3.0)
+        if P.Status.ARE_YOU_SURE.value not in prompt:
+            log.warning("unexpected clear prompt: %r", prompt)
+        self._write(b"Y")
+        result = self._read_idle(1.5, maxwait=20.0)
+        return P.Status.RAM_CLEARED.value in result
 
-    def summary_report(self) -> RawTransfer:
-        """[CONFIRMED] C2 - download event-count summary (host saves as .srp)."""
-        return self._bulk_download(P.Command.SUMMARY_REPORT)
+    # -- setup menu (C6) ---------------------------------------------------
+    def _enter_menu(self) -> bytes:
+        self.ser.reset_input_buffer()
+        self._write(P.Command.SETUP_MENU)
+        return self._read_idle(1.0, maxwait=3.0)
 
-    def detail_report(self) -> RawTransfer:
-        """[CONFIRMED] C3 - download full event listing (host saves as .drp)."""
-        return self._bulk_download(P.Command.DETAIL_REPORT)
+    def get_settings(self) -> Settings:
+        """Open the C6 menu, read current settings, and exit."""
+        menu = self._enter_menu()
+        text = menu.decode("latin1", "replace")
+        s = Settings(raw=text)
+        m = re.search(r"Set the Date and Time\s+(.+)", text)
+        if m:
+            s.datetime = m.group(1).strip()
+        m = re.search(r"Set the Baud Rate\s+([\d,]+)\s*Baud", text)
+        if m:
+            s.baud = int(m.group(1).replace(",", ""))
+        m = re.search(r"Sample rate\s+(\d+)\s*(Seconds?|Minutes?)", text)
+        if m:
+            n = int(m.group(1))
+            s.sample_rate_s = n * (60 if m.group(2).startswith("Min") else 1)
+        self._write(P.ESC)
+        self._read_idle(0.4, maxwait=1.0)
+        return s
 
-    def data_log(self) -> RawTransfer:
-        """[CONFIRMED] C4 - download voltage time-history (host saves as .dlg)."""
-        return self._bulk_download(P.Command.DATA_LOG)
+    def set_datetime(self, when: Optional[datetime] = None) -> bool:
+        """[C6->1] Set the clock (defaults to now). Format MM/DD/YY,HH:MM:SS."""
+        when = when or datetime.now()
+        stamp = when.strftime("%m/%d/%y,%H:%M:%S")
+        self._enter_menu()
+        self._write(P.SetupOption.DATE_TIME.value + P.CR)
+        self._read_idle(0.8, maxwait=3.0)              # the prompt
+        reply = self.raw(stamp.encode() + P.CR, idle=1.0)
+        ok = P.Status.COMMAND_OK.value in reply
+        self.reset()
+        return ok
 
-    def calibration_stream(
-        self, duration_s: Optional[float] = None
-    ) -> Iterator[bytes]:
+    def set_sample_rate(self, seconds: int) -> bool:
         """
-        [CONFIRMED] C5 - begin the real-time readings stream.
-
-        Yields raw line/records as they arrive (~1/sec).  The device auto-stops
-        after ~2 minutes; pass ``duration_s`` to stop sooner.  ESC is sent on
-        exit to halt the stream cleanly.
+        [C6->3] Set the data-log sample interval. WARNING: this ERASES the
+        existing data log (the device re-formats its FLASH banks).
+        Allowed: 1, 5, 10, 30, 60, 240 seconds.
         """
-        self.send_command(P.Command.CALIBRATION)
-        t0 = time.monotonic()
-        try:
-            while True:
-                if duration_s and time.monotonic() - t0 >= duration_s:
-                    break
-                if time.monotonic() - t0 >= P.CALIBRATION_AUTO_STOP_S:
-                    break
-                line = self.ser.readline()
-                if line:
-                    yield line
-        finally:
-            self.abort()
+        if seconds not in P.SAMPLE_RATE_MENU_INV:
+            raise PQRError(f"sample rate must be one of "
+                           f"{sorted(P.SAMPLE_RATE_MENU_INV)} seconds")
+        digit = P.SAMPLE_RATE_MENU_INV[seconds]
+        self._enter_menu()
+        self._write(P.SetupOption.SAMPLE_RATE.value + P.CR)
+        self._read_idle(0.8, maxwait=3.0)              # the rate list
+        reply = self.raw(digit + P.CR, idle=2.0)       # erases FLASH banks
+        self.reset()
+        return b"sample" in reply.lower() or b"Minute" in reply or b"Sec" in reply
 
-    # -- settings/programming (C6 family) ---------------------------------
-    # [VALIDATE] The C6 path enters the device's programming mode and then
-    # streams parameter digits terminated by CR. The exact sub-command codes
-    # (set time / set threshold / set baud / set transducer / clear) were not
-    # fully recoverable statically. Use program_raw() + capture.py to map them,
-    # then add typed helpers here.
-    def program_raw(self, payload: bytes, *, read_reply: bool = True) -> bytes:
+    def set_baud(self, rate: int, *, reopen: bool = True) -> bool:
         """
-        Enter the C6 programming path and send a raw payload (you supply any
-        sub-code and parameters, CR-terminated as needed). Returns the reply.
+        [C6->2] Change the device baud rate. The unit switches immediately, so
+        by default we reopen the local port at the new rate to stay in sync.
+        Allowed: 2400, 4800, 9600, 14400, 19200, 115200.
         """
-        self.send_command(P.Command.PROGRAM)
-        time.sleep(0.05)
-        self._write(payload)
-        return self._read_reply() if read_reply else b""
+        if rate not in P.BAUD_MENU_INV:
+            raise PQRError(f"baud must be one of {sorted(P.BAUD_MENU_INV)}")
+        digit = P.BAUD_MENU_INV[rate]
+        self._enter_menu()
+        self._write(P.SetupOption.BAUD_RATE.value + P.CR)
+        self._read_idle(0.8, maxwait=3.0)              # the rate list
+        self._write(digit + P.CR)                      # device switches now
+        self._read_idle(0.4, maxwait=1.0)
+        if reopen:
+            self.close()
+            self.baudrate = rate
+            self.open()
+            return self.reset()
+        return True
 
+    def set_thresholds(
+        self, values: Optional[Dict[Tuple[str, str], Optional[int]]] = None
+    ) -> bool:
+        """
+        [C6->4] Walk the 6-prompt threshold sequence
+        (CH1/CH2 x {Surge, Sag, PowerFail}).
+
+        ``values`` maps (channel, kind) -> setting:
+            None  -> keep current
+            0     -> default (5%,10%) percentage mode
+            N     -> trip at N volts (1..999)
+        Omitted entries keep their current value. The flow ignores ESC and ends
+        with "Setup Completed".
+        """
+        values = values or {}
+        self._enter_menu()
+        self._write(P.SetupOption.THRESHOLDS.value + P.CR)
+        ok = False
+        last = self._read_idle(1.0, maxwait=3.0)
+        for ch, kind in P.THRESHOLD_SEQUENCE:
+            if b"Setup Completed" in last:
+                break
+            v = values.get((ch, kind))
+            entry = b"" if v is None else str(int(v)).encode()
+            last = self.raw(entry + P.CR, idle=0.8)
+            if b"Setup Completed" in last:
+                ok = True
+                break
+        self.reset()
+        return ok or b"Setup Completed" in last
+
+    # -- convenience -------------------------------------------------------
     def autobaud(self) -> Optional[int]:
-        """
-        Try each supported baud rate, sending C1, until the unit identifies
-        itself. Returns the working rate (and leaves the port set to it).
-        """
-        original = self.baudrate
+        """Sweep supported rates sending C1 until the unit identifies itself."""
         for rate in P.SUPPORTED_BAUD_RATES:
             self.close()
             self.baudrate = rate
             self.open()
             try:
-                info = self.connect(retries=1)
-                if info.identified or info.raw:
+                if self.identify(retries=1).identified:
                     log.info("autobaud locked at %d", rate)
                     return rate
             except PQRError:
                 continue
-        self.close()
-        self.baudrate = original
-        self.open()
         return None
