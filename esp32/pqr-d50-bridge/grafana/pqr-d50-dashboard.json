@@ -97,20 +97,27 @@
     {
       "id": 2,
       "type": "timeseries",
-      "title": "Neutral-to-ground voltage (wiring health)",
+      "title": "Neutral-to-ground voltage  (good < 2 V · investigate > 3 V)",
       "datasource": { "type": "prometheus", "uid": "${DS_PROM}" },
       "gridPos": { "h": 8, "w": 12, "x": 0, "y": 9 },
       "fieldConfig": {
         "defaults": {
           "unit": "volt",
           "min": 0,
-          "custom": { "drawStyle": "line", "lineWidth": 2, "fillOpacity": 10 },
+          "max": 5,
+          "decimals": 2,
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 2,
+            "fillOpacity": 10,
+            "thresholdsStyle": { "mode": "dashed" }
+          },
           "thresholds": {
             "mode": "absolute",
             "steps": [
               { "color": "green", "value": null },
-              { "color": "orange", "value": 2 },
-              { "color": "red", "value": 4 }
+              { "color": "yellow", "value": 2 },
+              { "color": "red", "value": 3 }
             ]
           }
         }
