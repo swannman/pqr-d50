@@ -32,7 +32,7 @@
 // Value: volts to trip at | 0 = device default (5%,10%) | -1 = keep current.
 // Set to 1 to (re-)apply; device keeps them in battery-backed RAM, so 0 normally.
 #define D50_SET_THRESHOLDS 0
-#define TH_CH1_SURGE  123   // Hot: surge trips above 123 V
+#define TH_CH1_SURGE  126   // Hot: surge trips above 126 V
 #define TH_CH1_SAG    115   // Hot: sag trips below 115 V
 #define TH_CH1_PFAIL  (-1)  // keep
 #define TH_CH2_SURGE  (-1)  // neutral channel: keep
