@@ -26,6 +26,12 @@
 #define D50_BAUD        19200      // D50 V20.55 default
 #define D50_POLL_SEC    60         // how often to pull log + events
 
+// The D50 data log fills (~184 samples) then STOPS logging (it doesn't wrap).
+// Auto-clear it once it stalls so voltage keeps flowing; everything is already
+// in Grafana (voltage->Prometheus, events->Loki) before the clear runs.
+#define D50_AUTOCLEAR        1     // 1 = clear a full/stalled data log
+#define D50_AUTOCLEAR_POLLS  4     // clear after this many polls with 0 new samples
+
 // ---- One-shot disturbance thresholds (C6 option 4), applied on boot ----
 // 1 = write these once at startup then run normally; 0 = don't touch them.
 // Order is the device's: CH1=Hot, CH2=Neutral, each Surge/Sag/PowerFail.

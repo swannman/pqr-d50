@@ -307,7 +307,7 @@ static void fetch_unit_id(void) {
 
 // Pull the data log (C4), push samples newer than *watermark, advance it.
 // If `send` is false, only advance the watermark (boot priming, no push).
-static void process_datalog(int64_t *watermark, bool send) {
+static int process_datalog(int64_t *watermark, bool send) {
     static char body[6144];
     static d50_sample_t samples[256];
     size_t n = d50_xfer("C4", 2, 1500, 30000);
@@ -329,6 +329,17 @@ static void process_datalog(int64_t *watermark, bool send) {
     if (send && bl && influx_push(body, bl) == ESP_OK) *watermark = newest;
     else if (!send) *watermark = newest;     // prime only
     if (send) ESP_LOGI(TAG, "datalog: %d new of %u", pushed, (unsigned)cnt);
+    return pushed;
+}
+
+// Clear the D50's data log + events (C5). Everything has already been pushed to
+// Grafana; this lets a full/stalled log resume recording. Confirms with "Y".
+static void d50_clear_data(void) {
+    ESP_LOGW(TAG, "data log stalled (full) -> clearing device to resume logging");
+    d50_xfer("C5", 2, 800, 3000);     // -> "Are You Sure ... ?"
+    d50_xfer("Y", 1, 2000, 20000);    // confirm -> FLASH erase -> "Ram has been cleared"
+    d50_reset();
+    ESP_LOGI(TAG, "device cleared; logging resumes");
 }
 
 // Pull the detail report (C3), push events newer than *watermark.
@@ -496,13 +507,28 @@ extern "C" void app_main(void) {
     ESP_LOGI(TAG, "primed: sample_wm=%lld", (long long)sample_wm);
 
     int64_t last_clock_sync = esp_timer_get_time();
+    int stall_polls = 0;
 
     while (true) {
         if (!s_vcp) { open_d50(); vTaskDelay(pdMS_TO_TICKS(2000)); continue; }
 
         d50_reset();
-        process_datalog(&sample_wm, true);   // voltage -> Prometheus
+        int newsamples = process_datalog(&sample_wm, true);   // voltage -> Prometheus
         push_events_loki();                   // disturbances -> Loki (impulse/sag series)
+
+#if D50_AUTOCLEAR
+        // A full data log stops producing new samples; clear it (after the above
+        // pushes) so the D50 resumes logging.
+        if (newsamples == 0) {
+            if (++stall_polls >= D50_AUTOCLEAR_POLLS) {
+                d50_clear_data();
+                sample_wm = 0;        // log emptied; accept fresh samples
+                stall_polls = 0;
+            }
+        } else {
+            stall_polls = 0;
+        }
+#endif
 
         // periodic RTC re-sync (drift correction)
         if ((esp_timer_get_time() - last_clock_sync) >

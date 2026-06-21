@@ -7,7 +7,7 @@
           "uid": "grafanacloud-logs"
         },
         "enable": true,
-        "expr": "{service_name=\"pqr_d50\", unit=~\"$unit\"}",
+        "expr": "{service_name=\"pqr_d50\"}",
         "iconColor": "red",
         "name": "Disturbances",
         "queryType": "range"
@@ -173,7 +173,7 @@
             "type": "prometheus",
             "uid": "grafanacloud-prom"
           },
-          "expr": "pqr_d50_hot{unit=~\"$unit\"}",
+          "expr": "pqr_d50_hot",
           "legendFormat": "Line voltage",
           "refId": "A"
         },
@@ -182,7 +182,7 @@
             "type": "loki",
             "uid": "grafanacloud-logs"
           },
-          "expr": "max by (unit) (max_over_time({service_name=\"pqr_d50\", unit=~\"$unit\"} | logfmt | type=\"impulse\" | unwrap plot_v [$__interval]))",
+          "expr": "max by (unit) (max_over_time({service_name=\"pqr_d50\"} | logfmt | type=\"impulse\" | unwrap plot_v [$__interval]))",
           "legendFormat": "Impulse peak",
           "queryType": "range",
           "refId": "B"
@@ -192,7 +192,7 @@
             "type": "loki",
             "uid": "grafanacloud-logs"
           },
-          "expr": "min by (unit) (min_over_time({service_name=\"pqr_d50\", unit=~\"$unit\"} | logfmt | type=~\"sag_start|sag_complete\" | unwrap plot_v [$__interval]))",
+          "expr": "min by (unit) (min_over_time({service_name=\"pqr_d50\"} | logfmt | type=~\"sag_start|sag_complete\" | unwrap plot_v [$__interval]))",
           "legendFormat": "Sag",
           "queryType": "range",
           "refId": "C"
@@ -431,7 +431,7 @@
             "type": "loki",
             "uid": "grafanacloud-logs"
           },
-          "expr": "sum(count_over_time({service_name=\"pqr_d50\", unit=~\"$unit\"} | logfmt | type=\"power_failure\" [$__range]))",
+          "expr": "sum(count_over_time({service_name=\"pqr_d50\"} | logfmt | type=\"power_failure\" [$__range]))",
           "queryType": "instant",
           "refId": "A"
         }
@@ -464,7 +464,7 @@
             "type": "loki",
             "uid": "grafanacloud-logs"
           },
-          "expr": "{service_name=\"pqr_d50\", unit=~\"$unit\"} | logfmt",
+          "expr": "{service_name=\"pqr_d50\"} | logfmt",
           "queryType": "range",
           "refId": "A"
         }
@@ -501,5 +501,8 @@
   "timezone": "browser",
   "title": "PQR D50 \u2014 Mains Power Quality",
   "uid": "pqr-d50-mains",
-  "version": 0
+  "version": 0,
+  "templating": {
+    "list": []
+  }
 }
