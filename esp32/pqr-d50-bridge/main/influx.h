@@ -21,6 +21,20 @@ int influx_format_sample(char *out, size_t outsz,
                          const d50_sample_t *s,
                          int64_t ts_unix);
 
+// Build one Influx record for a disturbance event:
+//   <measurement>,unit=<id>,type=<norm> magnitude=<v> <ts_ns>
+// `type` is normalised to a Prometheus-safe label (lowercased, spaces->'_').
+// Returns chars written (excl. NUL) or -1 on truncation.
+int influx_format_event(char *out, size_t outsz,
+                        const char *measurement,
+                        const char *unit_id,
+                        const d50_event_t *e,
+                        int64_t ts_unix);
+
+// Normalise a string in place to a Prometheus label value: lowercase,
+// non-alnum -> '_'. (e.g. "Power Failure" -> "power_failure")
+void influx_normalize_label(char *s);
+
 // Convert a D50 "Mon/DD/YY" + "HH:MM:SS[.ff]" pair to epoch seconds (UTC-naive,
 // i.e. treated as local wall-clock). Returns 0 on parse failure.
 int64_t d50_timestamp_to_unix(const char *date, const char *time);

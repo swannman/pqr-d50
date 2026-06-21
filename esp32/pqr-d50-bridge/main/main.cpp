@@ -23,7 +23,10 @@
 #include "esp_netif.h"
 #include "nvs_flash.h"
 #include "esp_http_client.h"
+#include "esp_sntp.h"
+#include "esp_timer.h"
 #include "driver/gpio.h"
+#include <time.h>
 
 #include "usb/usb_host.h"
 #include "usb/vcp.hpp"
@@ -92,6 +95,35 @@ static bool d50_reset(void) {
     if (n >= sizeof(s_rx)) n = sizeof(s_rx) - 1;
     s_rx[n] = 0;   // NUL-terminate for strstr
     return strstr((char *)s_rx, "PowerTronics") != NULL;
+}
+
+// Set the D50 RTC from system time via the C6 setup menu (option 1).
+// Prompt format: MM/DD/YY,HH:MM:SS  -> replies "Command OK".
+static bool d50_set_clock(void) {
+    time_t now = time(NULL);
+    struct tm lt;
+    localtime_r(&now, &lt);
+    char stamp[24];
+    strftime(stamp, sizeof(stamp), "%m/%d/%y,%H:%M:%S", &lt);
+
+    d50_xfer("C6", 2, 800, 3000);      // enter setup menu
+    d50_write("1\r", 2);               // option 1: date/time
+    vTaskDelay(pdMS_TO_TICKS(300));
+    s_rx_len = 0; s_rx_last_us = esp_timer_get_time();
+    d50_write(stamp, strlen(stamp));
+    d50_write("\r", 1);
+    // wait for "Command OK"
+    int64_t start = esp_timer_get_time();
+    while ((esp_timer_get_time() - start) < 2000 * 1000) {
+        vTaskDelay(pdMS_TO_TICKS(20));
+        if (s_rx_len && (esp_timer_get_time() - s_rx_last_us) > 500 * 1000) break;
+    }
+    size_t n = s_rx_len < sizeof(s_rx) ? s_rx_len : sizeof(s_rx) - 1;
+    s_rx[n] = 0;
+    bool ok = strstr((char *)s_rx, "Command OK") != NULL;
+    d50_reset();
+    ESP_LOGI(TAG, "clock set to %s -> %s", stamp, ok ? "OK" : "FAILED");
+    return ok;
 }
 
 // ---- WiFi ----
@@ -180,6 +212,66 @@ static void open_d50(void) {
     xSemaphoreGive(s_dev_ready);
 }
 
+// Pull the data log (C4), push samples newer than *watermark, advance it.
+// If `send` is false, only advance the watermark (boot priming, no push).
+static void process_datalog(int64_t *watermark, bool send) {
+    static char body[6144];
+    static d50_sample_t samples[256];
+    size_t n = d50_xfer("C4", 2, 1500, 30000);
+    size_t cnt = d50_parse_datalog((char *)s_rx, n, samples, 256);
+    size_t bl = 0; int pushed = 0; int64_t newest = *watermark;
+    for (size_t i = 0; i < cnt; i++) {
+        int64_t ts = d50_timestamp_to_unix(samples[i].date, samples[i].time);
+        if (ts <= *watermark) continue;
+        if (ts > newest) newest = ts;
+        if (!send) continue;
+        char line[160];
+        int w = influx_format_sample(line, sizeof(line), INFLUX_MEASUREMENT,
+                                     INFLUX_USER, &samples[i], ts);
+        if (w < 0 || bl + w + 1 >= sizeof(body)) break;
+        memcpy(body + bl, line, w); bl += w; body[bl++] = '\n';
+        pushed++;
+    }
+    if (send && bl && influx_push(body, bl) == ESP_OK) *watermark = newest;
+    else if (!send) *watermark = newest;     // prime only
+    if (send) ESP_LOGI(TAG, "datalog: %d new of %u", pushed, (unsigned)cnt);
+}
+
+// Pull the detail report (C3), push events newer than *watermark.
+static void process_events(int64_t *watermark, bool send) {
+    static char body[6144];
+    static d50_event_t events[256];
+    size_t n = d50_xfer("C3", 2, 1500, 30000);
+    size_t cnt = d50_parse_detail((char *)s_rx, n, events, 256);
+    size_t bl = 0; int pushed = 0; int64_t newest = *watermark;
+    for (size_t i = 0; i < cnt; i++) {
+        int64_t ts = d50_timestamp_to_unix(events[i].date, events[i].time);
+        if (ts <= *watermark) continue;
+        if (ts > newest) newest = ts;
+        if (!send) continue;
+        char line[160];
+        int w = influx_format_event(line, sizeof(line), INFLUX_EVENT_MEASUREMENT,
+                                    INFLUX_USER, &events[i], ts);
+        if (w < 0 || bl + w + 1 >= sizeof(body)) break;
+        memcpy(body + bl, line, w); bl += w; body[bl++] = '\n';
+        pushed++;
+    }
+    if (send && bl && influx_push(body, bl) == ESP_OK) *watermark = newest;
+    else if (!send) *watermark = newest;
+    if (send && pushed) ESP_LOGI(TAG, "events: %d new of %u", pushed, (unsigned)cnt);
+}
+
+static void sntp_start(void) {
+    setenv("TZ", POSIX_TZ, 1); tzset();
+    esp_sntp_setoperatingmode(ESP_SNTP_OPMODE_POLL);
+    esp_sntp_setservername(0, NTP_SERVER);
+    esp_sntp_init();
+    for (int i = 0; i < 30 && sntp_get_sync_status() != SNTP_SYNC_STATUS_COMPLETED; i++)
+        vTaskDelay(pdMS_TO_TICKS(500));
+    time_t now = time(NULL);
+    ESP_LOGI(TAG, "SNTP time: %s", ctime(&now));
+}
+
 // ---- main loop ----
 extern "C" void app_main(void) {
     ESP_ERROR_CHECK(nvs_flash_init());
@@ -200,39 +292,37 @@ extern "C" void app_main(void) {
 
     xEventGroupWaitBits(s_wifi_eg, WIFI_CONNECTED_BIT, false, true, portMAX_DELAY);
     ESP_LOGI(TAG, "WiFi up");
+    sntp_start();
 
     open_d50();
     xSemaphoreTake(s_dev_ready, pdMS_TO_TICKS(10000));
 
-    int64_t last_ts_pushed = 0;          // dedupe by sample epoch
-    static char body[6144];
+    // Sync the D50 RTC first so its timestamps match our (NTP) clock, then
+    // prime watermarks from the current logs so we don't backfill old samples
+    // (Grafana Cloud/Mimir rejects samples older than ~1h).
+    d50_reset();
+    d50_set_clock();
+    int64_t sample_wm = 0, event_wm = 0;
+    process_datalog(&sample_wm, false);
+    process_events(&event_wm, false);
+    ESP_LOGI(TAG, "primed: sample_wm=%lld event_wm=%lld",
+             (long long)sample_wm, (long long)event_wm);
+
+    int64_t last_clock_sync = esp_timer_get_time();
 
     while (true) {
         if (!s_vcp) { open_d50(); vTaskDelay(pdMS_TO_TICKS(2000)); continue; }
 
         d50_reset();
-        size_t n = d50_xfer("C4", 2, 1500, 30000);     // pull the data log
+        process_datalog(&sample_wm, true);
+        process_events(&event_wm, true);
 
-        static d50_sample_t samples[256];
-        size_t cnt = d50_parse_datalog((char *)s_rx, n, samples, 256);
-
-        size_t bl = 0; int pushed = 0; int64_t newest = last_ts_pushed;
-        for (size_t i = 0; i < cnt; i++) {
-            int64_t ts = d50_timestamp_to_unix(samples[i].date, samples[i].time);
-            if (ts <= last_ts_pushed) continue;        // already sent
-            char line[160];
-            int w = influx_format_sample(line, sizeof(line), INFLUX_MEASUREMENT,
-                                         INFLUX_USER, &samples[i], ts);
-            if (w < 0 || bl + w + 1 >= sizeof(body)) break;
-            memcpy(body + bl, line, w); bl += w; body[bl++] = '\n';
-            pushed++;
-            if (ts > newest) newest = ts;
-        }
-        if (bl) {
-            if (influx_push(body, bl) == ESP_OK) last_ts_pushed = newest;
-            ESP_LOGI(TAG, "%d new of %u samples", pushed, (unsigned)cnt);
-        } else {
-            ESP_LOGI(TAG, "no new samples (%u in log)", (unsigned)cnt);
+        // periodic RTC re-sync (drift correction)
+        if ((esp_timer_get_time() - last_clock_sync) >
+            (int64_t)CLOCK_SYNC_HOURS * 3600 * 1000000LL) {
+            d50_reset();
+            d50_set_clock();
+            last_clock_sync = esp_timer_get_time();
         }
 
         vTaskDelay(pdMS_TO_TICKS(D50_POLL_SEC * 1000));

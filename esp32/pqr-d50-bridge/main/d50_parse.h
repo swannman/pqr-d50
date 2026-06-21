@@ -24,6 +24,16 @@ typedef struct {
     bool valid;
 } d50_sample_t;
 
+// One Detail Report (C3) event: "date, time, channel, event, magnitude,"
+typedef struct {
+    char date[12];
+    char time[12];
+    char channel[D50_MAXCH];
+    char event_type[24];
+    double magnitude;
+    bool valid;
+} d50_event_t;
+
 // Parsed identity banner fields.
 typedef struct {
     char model[16];
@@ -38,6 +48,10 @@ bool d50_parse_ident(const char *buf, size_t len, d50_ident_t *out);
 // (<= max). Skips the banner and any non-data lines.
 size_t d50_parse_datalog(const char *buf, size_t len,
                          d50_sample_t *samples, size_t max);
+
+// Parse a Detail Report (C3) buffer into events[]. Returns the count written.
+size_t d50_parse_detail(const char *buf, size_t len,
+                        d50_event_t *events, size_t max);
 
 #ifdef __cplusplus
 }

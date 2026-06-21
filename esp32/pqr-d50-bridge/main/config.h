@@ -16,11 +16,19 @@
 #define INFLUX_USER     "123456"
 #define INFLUX_TOKEN    "glc_xxxxxxxxxxxxxxxxxxxxxxxx"
 
-#define INFLUX_MEASUREMENT "pqr_d50"
+#define INFLUX_MEASUREMENT       "pqr_d50"        // -> metrics pqr_d50_hot/_neu
+#define INFLUX_EVENT_MEASUREMENT "pqr_d50_event"  // -> pqr_d50_event_magnitude
+
+// ---- Time ----
+// The D50 stores local wall-clock; we keep TZ consistent so event/sample epoch
+// timestamps line up with the rest of your stack. Set your POSIX TZ string.
+#define NTP_SERVER      "pool.ntp.org"
+#define POSIX_TZ        "PST8PDT,M3.2.0,M11.1.0"   // US Pacific; change as needed
+#define CLOCK_SYNC_HOURS 24                        // re-set the D50 RTC this often
 
 // ---- D50 link ----
 #define D50_BAUD        19200      // D50 V20.55 default
-#define D50_POLL_SEC    60         // how often to pull the data log
+#define D50_POLL_SEC    60         // how often to pull log + events
 
 // ---- USB ----
 // Optional: a GPIO that enables 5V VBUS to the device port via a load switch.

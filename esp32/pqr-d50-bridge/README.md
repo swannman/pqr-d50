@@ -41,16 +41,40 @@ idf.py -p /dev/ttyACM0 flash monitor    # flash via the UART port
 
 ## How it works
 
-Each `D50_POLL_SEC` the firmware:
-1. `d50_reset()` — spams CR + ESC + verifies `C1` (resync to command mode).
-2. Sends `C4`, accumulates the ASCII data log until the line is idle.
-3. Parses rows (`d50_parse.c`) → `date,time,Hot,v,Neu,v`.
-4. Dedupes by sample epoch, formats Influx line protocol (`influx.c`):
-   `pqr_d50,unit=086101 Hot=121.1,Neu=0.0 <ns>`
-5. POSTs the batch to Grafana Cloud (HTTP Basic: instance-id : token).
+On boot: connect WiFi → SNTP time → sync the D50's RTC (`C6`→1) so its
+timestamps match your stack → **prime watermarks** from the current logs (record
+the latest sample/event times and push nothing, so we don't backfill old data —
+Grafana Cloud/Mimir rejects samples older than ~1 h).
 
-Set the D50's log sample rate (e.g. 60 s, or 1 s for near-real-time) once from
-the Python tool, or extend the firmware to use the `C6` menu.
+Then every `D50_POLL_SEC`:
+1. `d50_reset()` — CR-spam + ESC + verify `C1` (resync to command mode).
+2. **Data log (`C4`)** → parse `date,time,Hot,v,Neu,v` → push samples newer than
+   the watermark as `pqr_d50,unit=086101 hot=121.1,neu=0.0 <ns>`.
+3. **Detail report (`C3`)** → parse events → push new ones as
+   `pqr_d50_event,unit=086101,type=power_failure magnitude=27.8 <ns>`.
+4. Re-sync the RTC every `CLOCK_SYNC_HOURS`.
+
+POSTs go to Grafana Cloud (HTTP Basic: instance-id : token). In the Prometheus
+(Mimir) backend these become metrics `pqr_d50_hot`, `pqr_d50_neu`, and
+`pqr_d50_event_magnitude{type=...}`.
+
+Set the D50's log sample rate (60 s default, or 1 s for near-real-time) once with
+the Python tool (`set_sample_rate`), or extend the firmware via `C6`→3.
+
+## Grafana dashboard
+
+Import `grafana/pqr-d50-dashboard.json` and pick your Prometheus datasource. It
+has: line voltage with the ANSI C84.1 114–126 V band, neutral-to-ground voltage,
+latest-voltage + power-failure stats, a recent-disturbances table, and event
+**annotations** (so power-fail/sag markers can overlay your other dashboards).
+
+## Data model (Prometheus / Grafana Cloud)
+
+| Metric | Labels | Meaning |
+|---|---|---|
+| `pqr_d50_hot` | `unit` | line voltage (V) |
+| `pqr_d50_neu` | `unit` | neutral-to-ground voltage (V) |
+| `pqr_d50_event_magnitude` | `unit`, `type` | disturbance magnitude (V) at event time |
 
 ## Tested vs. needs-hardware
 
