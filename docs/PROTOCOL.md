@@ -105,8 +105,14 @@ Jun/21/26, 11:28:05, Hot, 121.1, Neu, 0.0,
 ```
 
 Channels: **Hot, Neu(tral), Gnd**. Event types seen / referenced: *Sag Start,
-Surge, Sag, Power Failure, Power Restore, Signal Failure* (poly-phase models add
-`PHx ...` current/voltage variants `[MODEL-DEP]`).
+Sag Complete, Surge, Impulse, Power Failure, Power Restore, Signal Failure*
+(poly-phase models add `PHx ...` current/voltage variants `[MODEL-DEP]`).
+
+`Sag Start`/`Sag Complete` are emitted as a pair (the dip's onset and recovery,
+magnitudes = the low and recovered RMS volts). `Impulse` is an automatic
+sub-cycle transient detector (magnitude = spike volts) — *not* gated by the
+configurable sag/surge RMS thresholds, so it fires on fast events (e.g. a laser
+printer's fuser switching) even when RMS never leaves the normal band.
 
 ## Real-time data
 

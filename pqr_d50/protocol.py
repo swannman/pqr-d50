@@ -103,9 +103,12 @@ CHANNELS = ("Hot", "Neu", "Gnd")
 POLYPHASE_CHANNELS = ("Phase 1", "Phase 2", "Phase 3")
 
 # [CONFIRMED live + BINARY] Event types seen in reports / referenced by the host.
+# "Sag Start"/"Sag Complete" are emitted as a pair (dip begins / recovers).
+# "Impulse" is an automatic sub-cycle transient detection (magnitude = spike V),
+# independent of the configurable sag/surge RMS thresholds.
 EVENT_TYPES = (
-    "Sag Start", "Surge", "Sag", "Power Failure", "Power Restore",
-    "Signal Failure",
+    "Sag Start", "Sag Complete", "Surge", "Impulse",
+    "Power Failure", "Power Restore", "Signal Failure",
     # [MODEL-DEP] poly-phase current/voltage variants:
     "Current Sag", "Current Swell", "Current Drop", "Power Fail",
 )

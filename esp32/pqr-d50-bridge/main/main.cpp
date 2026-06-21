@@ -391,6 +391,15 @@ static void usb_selftest(void) {
         if (cnt) ESP_LOGI(TAG, "  latest: %s %s  hot=%.1f V  neu=%.1f V",
                           samples[cnt - 1].date, samples[cnt - 1].time,
                           samples[cnt - 1].ch1_value, samples[cnt - 1].ch2_value);
+
+        // Detail report (C3) — every disturbance the D50 has recorded
+        n = d50_xfer("C3", 2, 1500, 30000);
+        static d50_event_t evs[64];
+        size_t ec = d50_parse_detail((char *)s_rx, n, evs, 64);
+        ESP_LOGI(TAG, "C3 detail: %u event(s)", (unsigned)ec);
+        for (size_t i = 0; i < ec; i++)
+            ESP_LOGI(TAG, "  EVENT %s %s  %s  %s  %.1f V", evs[i].date, evs[i].time,
+                     evs[i].channel, evs[i].event_type, evs[i].magnitude);
         vTaskDelay(pdMS_TO_TICKS(10000));
     }
 }
