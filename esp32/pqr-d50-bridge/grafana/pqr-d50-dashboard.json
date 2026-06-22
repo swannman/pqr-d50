@@ -136,6 +136,60 @@
                 "value": 60000
               }
             ]
+          },
+          {
+            "matcher": {
+              "id": "byFrameRefID",
+              "options": "D"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "purple",
+                  "mode": "fixed"
+                }
+              },
+              {
+                "id": "displayName",
+                "value": "HF noise"
+              },
+              {
+                "id": "custom.drawStyle",
+                "value": "points"
+              },
+              {
+                "id": "custom.pointSize",
+                "value": 9
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byFrameRefID",
+              "options": "E"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "yellow",
+                  "mode": "fixed"
+                }
+              },
+              {
+                "id": "displayName",
+                "value": "Freq fault"
+              },
+              {
+                "id": "custom.drawStyle",
+                "value": "points"
+              },
+              {
+                "id": "custom.pointSize",
+                "value": 9
+              }
+            ]
           }
         ]
       },
@@ -184,6 +238,26 @@
           "legendFormat": "Sag",
           "queryType": "range",
           "refId": "C"
+        },
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "grafanacloud-logs"
+          },
+          "expr": "count_over_time({service_name=\"pqr_d50\"} | logfmt | type=\"hf_noise\" [$__interval]) * 0 + 190",
+          "legendFormat": "HF noise",
+          "queryType": "range",
+          "refId": "D"
+        },
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "grafanacloud-logs"
+          },
+          "expr": "count_over_time({service_name=\"pqr_d50\"} | logfmt | type=\"freq_fault\" [$__interval]) * 0 + 185",
+          "legendFormat": "Freq fault",
+          "queryType": "range",
+          "refId": "E"
         }
       ],
       "title": "Line voltage + disturbances  (impulse peaks \u00b7 sag dips)",
@@ -295,7 +369,7 @@
           "refId": "A"
         }
       ],
-      "title": "Neutral-to-ground voltage  (good < 2 V \u00b7 investigate > 3 V)",
+      "title": "Neutral-to-ground / common-mode noise  (good < 2 V \u00b7 investigate > 3 V)",
       "type": "timeseries"
     },
     {
@@ -459,6 +533,54 @@
       ],
       "title": "Recent disturbances",
       "type": "logs"
+    },
+    {
+      "datasource": {
+        "type": "loki",
+        "uid": "grafanacloud-logs"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "continuous-GrYlRd"
+          },
+          "min": 0,
+          "unit": "short"
+        }
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 26
+      },
+      "id": 6,
+      "options": {
+        "displayMode": "gradient",
+        "orientation": "horizontal",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "showUnfilled": true
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "grafanacloud-logs"
+          },
+          "expr": "sum by (type) (count_over_time({service_name=\"pqr_d50\"} | logfmt [$__range]))",
+          "legendFormat": "{{type}}",
+          "queryType": "instant",
+          "refId": "A"
+        }
+      ],
+      "title": "Disturbances by type (in range)",
+      "type": "bargauge"
     }
   ],
   "preload": false,
