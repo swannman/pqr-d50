@@ -68,7 +68,8 @@ static volatile int64_t  s_rx_last_us = 0;
 static std::unique_ptr<CdcAcmDevice> s_vcp;
 static SemaphoreHandle_t s_dev_ready;
 static char s_unit_id[16] = "unknown";   // the D50's own ID, used as the metric tag
-static double s_last_hot = 120.0;        // latest Hot RMS volts, baseline for impulse peaks
+static double s_last_hot = 120.0;        // latest Hot RMS volts (impulse baseline)
+static double s_last_neu = 0.0;          // latest Neutral-ground volts (impulse baseline)
 
 static bool rx_cb(const uint8_t *data, size_t len, void *arg) {
     if (s_rx_len + len <= sizeof(s_rx)) {
@@ -312,7 +313,10 @@ static int process_datalog(int64_t *watermark, bool send) {
     static d50_sample_t samples[256];
     size_t n = d50_xfer("C4", 2, 1500, 30000);
     size_t cnt = d50_parse_datalog((char *)s_rx, n, samples, 256);
-    if (cnt) s_last_hot = samples[cnt - 1].ch1_value;   // baseline for impulse peaks
+    if (cnt) {                                          // baselines for impulse peaks
+        s_last_hot = samples[cnt - 1].ch1_value;
+        s_last_neu = samples[cnt - 1].ch2_value;
+    }
     size_t bl = 0; int pushed = 0; int64_t newest = *watermark;
     for (size_t i = 0; i < cnt; i++) {
         int64_t ts = d50_timestamp_to_unix(samples[i].date, samples[i].time);
@@ -376,8 +380,10 @@ static void push_events_loki(void) {
         strncpy(type, evs[i].event_type, sizeof(type) - 1); type[sizeof(type) - 1] = 0;
         influx_normalize_label(type);            // "Sag Start" -> "sag_start"
 
+        // impulse "peak" rides on its own conductor's baseline (Hot vs Neutral)
+        bool is_neu = (evs[i].channel[0] == 'N' || evs[i].channel[0] == 'n');
         double plot_v;
-        if (strstr(type, "impulse"))           plot_v = s_last_hot + evs[i].magnitude;
+        if (strstr(type, "impulse"))           plot_v = (is_neu ? s_last_neu : s_last_hot) + evs[i].magnitude;
         else if (strstr(type, "sag_start"))    { plot_v = evs[i].magnitude; sag_low = plot_v; }
         else if (strstr(type, "sag_complete")) plot_v = sag_low > 0 ? sag_low : evs[i].magnitude;
         else                                   plot_v = evs[i].magnitude;
