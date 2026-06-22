@@ -105,8 +105,12 @@ Jun/21/26, 11:28:05, Hot, 121.1, Neu, 0.0,
 ```
 
 Channels: **Hot, Neu(tral), Gnd**. Event types observed / supported: *Sag Start,
-Sag Complete, Surge, Impulse, Power Failure, Power Restore, Signal Failure*
-(poly-phase models add `PHx ...` current/voltage variants `[MODEL-DEP]`).
+Sag Complete, Surge, Impulse, Power Failure, Power Restore, Signal Failure*, plus
+*Freq Fault* (line-frequency) and *HF Noise* (high-frequency noise). Note that
+line frequency and HF/common-mode noise surface as **events** (logged when they
+cross a limit) rather than continuously-sampled values — the periodic Data Log
+(`C4`) carries only Hot + Neutral voltage. (Poly-phase models add `PHx ...`
+current/voltage variants `[MODEL-DEP]`.)
 
 `Sag Start`/`Sag Complete` are emitted as a pair (the dip's onset and recovery,
 magnitudes = the low and recovered RMS volts). `Impulse` is an automatic

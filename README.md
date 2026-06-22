@@ -4,6 +4,8 @@ A Linux / Raspberry-Pi driver for **Powertronics PQR-series** power-line
 monitors — an independent, pure-Python implementation of the device's serial
 protocol, **validated live, byte-for-byte, against a PQR D50 (firmware V20.55).**
 
+Device under test: [Powertronics PQR D50 Power Line Monitor](https://powertronics.com/products/pqr-d50-power-line-monitor).
+
 Full protocol reference: [`docs/PROTOCOL.md`](docs/PROTOCOL.md).
 
 ## Hardware

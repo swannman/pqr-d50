@@ -107,6 +107,9 @@ POLYPHASE_CHANNELS = ("Phase 1", "Phase 2", "Phase 3")
 EVENT_TYPES = (
     "Sag Start", "Sag Complete", "Surge", "Impulse",
     "Power Failure", "Power Restore", "Signal Failure",
+    # [INFERRED] Line frequency and high-frequency noise surface as events (logged
+    # when they cross a limit), not as continuously-sampled values:
+    "Freq Fault", "HF Noise",
     # [MODEL-DEP] poly-phase current/voltage variants:
     "Current Sag", "Current Swell", "Current Drop", "Power Fail",
 )
