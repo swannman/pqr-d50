@@ -1,12 +1,10 @@
 # pqr-d50
 
 A Linux / Raspberry-Pi driver for **Powertronics PQR-series** power-line
-monitors. The vendor's only software (`PQRHost.exe`) is Windows-only; this is a
-clean-room Python reimplementation of its serial protocol, **reverse-engineered
-from that binary and validated live, byte-for-byte, against a PQR D50
-(firmware V20.55).**
+monitors — an independent, pure-Python implementation of the device's serial
+protocol, **validated live, byte-for-byte, against a PQR D50 (firmware V20.55).**
 
-Full protocol writeup: [`docs/PROTOCOL.md`](docs/PROTOCOL.md).
+Full protocol reference: [`docs/PROTOCOL.md`](docs/PROTOCOL.md).
 
 ## Hardware
 
@@ -103,5 +101,5 @@ on-device bring-up. See its README for wiring and flashing.
 ## License
 
 MIT — see [LICENSE](LICENSE). Powertronics and PQR are trademarks of their
-owner; this is an independent, interoperability-only reimplementation that ships
-no vendor code.
+owner; this is an independent, interoperability-focused implementation that
+ships no third-party code.

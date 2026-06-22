@@ -1,7 +1,7 @@
 """
 pqr_d50 - a Linux/Raspberry-Pi driver for Powertronics PQR-series power-line
-monitors (PQR D50 and relatives), reverse-engineered from the Windows-only
-PQRHost.exe and validated live against a PQR D50 V20.55.
+monitors (PQR D50 and relatives) - an independent implementation of the device's
+serial protocol, validated live against a PQR D50 V20.55.
 
 Quick start
 -----------

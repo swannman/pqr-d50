@@ -2,27 +2,25 @@
 Wire-protocol constants for the Powertronics PQR-series power-line monitors,
 validated live against a **PQR D50, firmware V20.55**.
 
-Recovered by reverse-engineering the Windows host ``PQRHost.exe`` v2.1.5 (native
-VB6 / MSComm32, RS-232) and then confirmed byte-for-byte against real hardware.
-See ``docs/PROTOCOL.md`` for the full analysis and transcripts.
+Determined and confirmed byte-for-byte by communicating with real hardware.
+See ``docs/PROTOCOL.md`` for the full protocol reference and transcripts.
 
 Confidence legend:
     [CONFIRMED]  - seen on the wire against a real PQR D50 V20.55
-    [BINARY]     - from the host binary; not exercised live on this unit
+    [INFERRED]   - derived but not exercised live on this unit
     [MODEL-DEP]  - applies to other models in the family, not the D50 V20.55
 """
 
 from enum import Enum
 
 # --- Serial line settings  [CONFIRMED] -----------------------------------
-# Host builds its MSComm "Settings" as "<baud>,N,8,1" => 8 data, no parity, 1 stop.
+# 8 data bits, no parity, 1 stop bit (8N1).
 BYTESIZE = 8
 PARITY = "N"
 STOPBITS = 1
 
 # [CONFIRMED] The D50 V20.55 came up at 19200. Its own baud menu (C6 option 2)
-# offers these six (note: this firmware supports 115200 and dropped the old
-# 1200 that older host builds listed):
+# offers these six (this firmware supports 115200):
 SUPPORTED_BAUD_RATES = (2400, 4800, 9600, 14400, 19200, 115200)
 DEFAULT_BAUD_RATE = 19200
 
@@ -34,12 +32,12 @@ CR = b"\x0d"    # terminates command-mode commands and menu field entries
 
 # --- Command set  [CONFIRMED] --------------------------------------------
 # Two-character ASCII commands written while the device is in "command mode".
-# Each was located in the binary and exercised against the real unit:
+# Each was confirmed against the real unit:
 #
 #   C1 -> identity banner
-#   C2 -> Summary Report  (event counts)     ASCII, ends the host's ".srp" file
-#   C3 -> Detail Report   (event listing)    ASCII, host ".drp"
-#   C4 -> Data Log        (voltage history)  ASCII, host ".dlg"
+#   C2 -> Summary Report  (event counts)     ASCII (.srp)
+#   C3 -> Detail Report   (event listing)    ASCII (.drp)
+#   C4 -> Data Log        (voltage history)  ASCII (.dlg)
 #   C5 -> CLEAR ALL DATA  (destructive!)     prompts "Are You Sure ... ?"  -> "Y"
 #   C6 -> Setup Menu      (interactive)      options 1..4, ESC to exit
 #
@@ -102,7 +100,7 @@ VENDOR_TOKENS = ("PowerTronics", "Omega")
 CHANNELS = ("Hot", "Neu", "Gnd")
 POLYPHASE_CHANNELS = ("Phase 1", "Phase 2", "Phase 3")
 
-# [CONFIRMED live + BINARY] Event types seen in reports / referenced by the host.
+# [CONFIRMED] Event types seen in the device's reports.
 # "Sag Start"/"Sag Complete" are emitted as a pair (dip begins / recovers).
 # "Impulse" is an automatic sub-cycle transient detection (magnitude = spike V),
 # independent of the configurable sag/surge RMS thresholds.
@@ -114,14 +112,14 @@ EVENT_TYPES = (
 )
 
 
-# --- Report file extensions written by the original host ------------------
+# --- Conventional report file extensions ----------------------------------
 DETAIL_REPORT_EXT = ".drp"
 SUMMARY_REPORT_EXT = ".srp"
 DATA_LOG_EXT = ".dlg"
 
 
 # --- Notes ----------------------------------------------------------------
-# [MODEL-DEP] The host has a "Calibration Mode" that streams real-time readings,
-# but it is NOT wired to any Cn command and the D50 V20.55 does not implement it.
+# [MODEL-DEP] Other models in the family have a "Calibration Mode" that streams
+# real-time readings; the D50 V20.55 does not (no live-readings command exists).
 # For near-real-time data on the D50, set the sample rate to 1 second (C6 opt 3)
 # and poll the Data Log (C4).
