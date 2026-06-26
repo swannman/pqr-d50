@@ -427,10 +427,6 @@
                                 "value": 0
                             },
                             {
-                                "id": "max",
-                                "value": 5
-                            },
-                            {
                                 "id": "color",
                                 "value": {
                                     "fixedColor": "green",
@@ -462,6 +458,10 @@
                                         }
                                     ]
                                 }
+                            },
+                            {
+                                "id": "custom.axisSoftMax",
+                                "value": 3
                             }
                         ]
                     },
@@ -748,6 +748,9 @@
                             "type": "auto"
                         },
                         "filterable": false,
+                        "footer": {
+                            "reducers": []
+                        },
                         "inspect": false
                     },
                     "mappings": [],
@@ -799,14 +802,6 @@
             "id": 6,
             "options": {
                 "cellHeight": "sm",
-                "footer": {
-                    "countRows": false,
-                    "fields": "",
-                    "reducer": [
-                        "sum"
-                    ],
-                    "show": false
-                },
                 "showHeader": true,
                 "sortBy": [
                     {
@@ -815,7 +810,7 @@
                     }
                 ]
             },
-            "pluginVersion": "13.1.0",
+            "pluginVersion": "13.1.0-27871179369",
             "targets": [
                 {
                     "datasource": {
@@ -884,5 +879,5 @@
     "timezone": "browser",
     "title": "Energy - Power Quality",
     "uid": "pqr-d50-mains",
-    "version": 30
+    "version": 31
 }
