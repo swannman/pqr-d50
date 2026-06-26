@@ -68,8 +68,6 @@ static volatile int64_t  s_rx_last_us = 0;
 static std::unique_ptr<CdcAcmDevice> s_vcp;
 static SemaphoreHandle_t s_dev_ready;
 static char s_unit_id[16] = "unknown";   // the D50's own ID, used as the metric tag
-static double s_last_hot = 120.0;        // latest Hot RMS volts (impulse baseline)
-static double s_last_neu = 0.0;          // latest Neutral-ground volts (impulse baseline)
 
 static bool rx_cb(const uint8_t *data, size_t len, void *arg) {
     if (s_rx_len + len <= sizeof(s_rx)) {
@@ -313,10 +311,6 @@ static int process_datalog(int64_t *watermark, bool send) {
     static d50_sample_t samples[256];
     size_t n = d50_xfer("C4", 2, 1500, 30000);
     size_t cnt = d50_parse_datalog((char *)s_rx, n, samples, 256);
-    if (cnt) {                                          // baselines for impulse peaks
-        s_last_hot = samples[cnt - 1].ch1_value;
-        s_last_neu = samples[cnt - 1].ch2_value;
-    }
     size_t bl = 0; int pushed = 0; int64_t newest = *watermark;
     for (size_t i = 0; i < cnt; i++) {
         int64_t ts = d50_timestamp_to_unix(samples[i].date, samples[i].time);
@@ -359,10 +353,10 @@ static int64_t d50_event_ns(const d50_event_t *e) {
 // Push every disturbance in the C3 detail report to Loki as a structured line.
 // Loki de-dupes identical (timestamp, line) entries, so re-sending the whole
 // report each poll is safe and reboot-proof (no watermark needed).
-// plot_v = the value to draw on the voltage axis:
-//   impulse -> live voltage + magnitude (the transient's peak, "how much higher")
-//   sag     -> the absolute RMS volts (the dip); sag_complete reuses the dip level
-//              so a sag's start+complete connect as a flat line across its duration.
+// Each line carries only the event's own immutable fields (type, channel,
+// magnitude) — never live/derived state — so re-pushing the whole report every
+// poll yields byte-identical lines that Loki de-dupes. Presentation lives in
+// Grafana: impulse peak = live voltage + magnitude; sag dip = sag_start magnitude.
 static void push_events_loki(void) {
     static char body[8192];
     static d50_event_t evs[128];
@@ -374,26 +368,19 @@ static void push_events_loki(void) {
         "{\"streams\":[{\"stream\":{\"service_name\":\"pqr_d50\",\"unit\":\"%s\"},"
         "\"values\":[", s_unit_id);
     int added = 0;
-    double sag_low = 0;
     for (size_t i = 0; i < cnt; i++) {
         char type[24];
         strncpy(type, evs[i].event_type, sizeof(type) - 1); type[sizeof(type) - 1] = 0;
         influx_normalize_label(type);            // "Sag Start" -> "sag_start"
 
-        // impulse "peak" rides on its own conductor's baseline (Hot vs Neutral)
-        bool is_neu = (evs[i].channel[0] == 'N' || evs[i].channel[0] == 'n');
-        double plot_v;
-        if (strstr(type, "impulse"))           plot_v = (is_neu ? s_last_neu : s_last_hot) + evs[i].magnitude;
-        else if (strstr(type, "sag_start"))    { plot_v = evs[i].magnitude; sag_low = plot_v; }
-        else if (strstr(type, "sag_complete")) plot_v = sag_low > 0 ? sag_low : evs[i].magnitude;
-        else                                   plot_v = evs[i].magnitude;
-
         int64_t ts = d50_event_ns(&evs[i]);
         char line[128];
-        // plot_v rounded to whole volts so a drifting baseline doesn't change the
-        // line each poll (keeps Loki's identical-entry de-dup working).
-        snprintf(line, sizeof(line), "type=%s channel=%s magnitude=%.1f plot_v=%.0f",
-                 type, evs[i].channel, evs[i].magnitude, plot_v);
+        // Emit ONLY the event's own immutable fields (no live/derived values), so
+        // every re-push of the same event is byte-identical and Loki de-dupes it.
+        // How a disturbance is drawn on the voltage axis (impulse peak = live volts
+        // + magnitude; sag dip) is reconstructed in Grafana at query time.
+        snprintf(line, sizeof(line), "type=%s channel=%s magnitude=%.1f",
+                 type, evs[i].channel, evs[i].magnitude);
         int w = snprintf(body + bl, sizeof(body) - bl, "%s[\"%lld\",\"%s\"]",
                          added ? "," : "", (long long)ts, line);
         if (w < 0 || bl + w + 8 >= (int)sizeof(body)) break;

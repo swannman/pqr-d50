@@ -1,664 +1,888 @@
 {
-  "annotations": {
-    "list": []
-  },
-  "editable": true,
-  "fiscalYearStartMonth": 0,
-  "graphTooltip": 0,
-  "liveNow": false,
-  "panels": [
-    {
-      "datasource": {
-        "type": "datasource",
-        "uid": "-- Mixed --"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "custom": {
-            "drawStyle": "line",
-            "fillOpacity": 0,
-            "lineWidth": 2,
-            "showPoints": "auto",
-            "spanNulls": false
-          },
-          "max": 200,
-          "min": 100,
-          "unit": "volt"
-        },
-        "overrides": [
-          {
-            "matcher": {
-              "id": "byFrameRefID",
-              "options": "A"
-            },
-            "properties": [
-              {
-                "id": "color",
-                "value": {
-                  "fixedColor": "green",
-                  "mode": "fixed"
-                }
-              },
-              {
-                "id": "displayName",
-                "value": "Line voltage"
-              },
-              {
-                "id": "custom.thresholdsStyle",
-                "value": {
-                  "mode": "dashed"
-                }
-              },
-              {
-                "id": "thresholds",
-                "value": {
-                  "mode": "absolute",
-                  "steps": [
-                    {
-                      "color": "green",
-                      "value": null
-                    },
-                    {
-                      "color": "blue",
-                      "value": 115
-                    },
-                    {
-                      "color": "orange",
-                      "value": 126
-                    }
-                  ]
-                }
-              }
-            ]
-          },
-          {
-            "matcher": {
-              "id": "byFrameRefID",
-              "options": "B"
-            },
-            "properties": [
-              {
-                "id": "color",
-                "value": {
-                  "fixedColor": "red",
-                  "mode": "fixed"
-                }
-              },
-              {
-                "id": "displayName",
-                "value": "Impulse (Hot)"
-              },
-              {
-                "id": "custom.drawStyle",
-                "value": "points"
-              },
-              {
-                "id": "custom.pointSize",
-                "value": 8
-              }
-            ]
-          },
-          {
-            "matcher": {
-              "id": "byFrameRefID",
-              "options": "C"
-            },
-            "properties": [
-              {
-                "id": "color",
-                "value": {
-                  "fixedColor": "super-light-blue",
-                  "mode": "fixed"
-                }
-              },
-              {
-                "id": "displayName",
-                "value": "Sag"
-              },
-              {
-                "id": "custom.drawStyle",
-                "value": "line"
-              },
-              {
-                "id": "custom.lineWidth",
-                "value": 2
-              },
-              {
-                "id": "custom.showPoints",
-                "value": "always"
-              },
-              {
-                "id": "custom.pointSize",
-                "value": 6
-              },
-              {
-                "id": "custom.spanNulls",
-                "value": 60000
-              }
-            ]
-          },
-          {
-            "matcher": {
-              "id": "byFrameRefID",
-              "options": "D"
-            },
-            "properties": [
-              {
-                "id": "color",
-                "value": {
-                  "fixedColor": "purple",
-                  "mode": "fixed"
-                }
-              },
-              {
-                "id": "displayName",
-                "value": "HF noise"
-              },
-              {
-                "id": "custom.drawStyle",
-                "value": "points"
-              },
-              {
-                "id": "custom.pointSize",
-                "value": 9
-              }
-            ]
-          },
-          {
-            "matcher": {
-              "id": "byFrameRefID",
-              "options": "E"
-            },
-            "properties": [
-              {
-                "id": "color",
-                "value": {
-                  "fixedColor": "yellow",
-                  "mode": "fixed"
-                }
-              },
-              {
-                "id": "displayName",
-                "value": "Freq fault"
-              },
-              {
-                "id": "custom.drawStyle",
-                "value": "points"
-              },
-              {
-                "id": "custom.pointSize",
-                "value": 9
-              }
-            ]
-          }
+    "annotations": {
+        "list": [
+            {
+                "builtIn": 1,
+                "datasource": {
+                    "type": "grafana",
+                    "uid": "-- Grafana --"
+                },
+                "enable": true,
+                "hide": true,
+                "iconColor": "rgba(0, 211, 255, 1)",
+                "name": "Annotations & Alerts",
+                "type": "dashboard"
+            }
         ]
-      },
-      "gridPos": {
-        "h": 10,
-        "w": 24,
-        "x": 0,
-        "y": 0
-      },
-      "id": 1,
-      "options": {
-        "legend": {
-          "displayMode": "list",
-          "placement": "bottom"
-        },
-        "tooltip": {
-          "mode": "multi"
-        }
-      },
-      "targets": [
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "grafanacloud-prom"
-          },
-          "expr": "pqr_d50_hot",
-          "legendFormat": "Line voltage",
-          "refId": "A"
-        },
-        {
-          "datasource": {
-            "type": "loki",
-            "uid": "grafanacloud-logs"
-          },
-          "expr": "max by (unit) (max_over_time({service_name=\"pqr_d50\"} | logfmt | type=\"impulse\" | channel=~\"[Hh].*\" | unwrap plot_v [$__interval]))",
-          "legendFormat": "Impulse (Hot)",
-          "queryType": "range",
-          "refId": "B"
-        },
-        {
-          "datasource": {
-            "type": "loki",
-            "uid": "grafanacloud-logs"
-          },
-          "expr": "min by (unit) (min_over_time({service_name=\"pqr_d50\"} | logfmt | type=~\"sag_start|sag_complete\" | unwrap plot_v [$__interval]))",
-          "legendFormat": "Sag",
-          "queryType": "range",
-          "refId": "C"
-        },
-        {
-          "datasource": {
-            "type": "loki",
-            "uid": "grafanacloud-logs"
-          },
-          "expr": "count_over_time({service_name=\"pqr_d50\"} | logfmt | type=\"hf_noise\" [$__interval]) * 0 + 190",
-          "legendFormat": "HF noise",
-          "queryType": "range",
-          "refId": "D"
-        },
-        {
-          "datasource": {
-            "type": "loki",
-            "uid": "grafanacloud-logs"
-          },
-          "expr": "count_over_time({service_name=\"pqr_d50\"} | logfmt | type=\"freq_fault\" [$__interval]) * 0 + 185",
-          "legendFormat": "Freq fault",
-          "queryType": "range",
-          "refId": "E"
-        }
-      ],
-      "title": "Line voltage + disturbances  (impulse peaks \u00b7 sag dips)",
-      "type": "timeseries"
     },
-    {
-      "datasource": {
-        "type": "datasource",
-        "uid": "-- Mixed --"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "custom": {
-            "drawStyle": "line",
-            "fillOpacity": 10,
-            "lineWidth": 2,
-            "showPoints": "auto"
-          },
-          "decimals": 2,
-          "unit": "volt"
-        },
-        "overrides": [
-          {
-            "matcher": {
-              "id": "byFrameRefID",
-              "options": "A"
+    "editable": true,
+    "fiscalYearStartMonth": 0,
+    "graphTooltip": 0,
+    "id": null,
+    "liveNow": false,
+    "panels": [
+        {
+            "datasource": {
+                "type": "mixed",
+                "uid": "-- Mixed --"
             },
-            "properties": [
-              {
-                "id": "displayName",
-                "value": "Neutral-ground V"
-              },
-              {
-                "id": "min",
-                "value": 0
-              },
-              {
-                "id": "max",
-                "value": 5
-              },
-              {
-                "id": "color",
-                "value": {
-                  "fixedColor": "green",
-                  "mode": "fixed"
-                }
-              },
-              {
-                "id": "custom.thresholdsStyle",
-                "value": {
-                  "mode": "dashed"
-                }
-              },
-              {
-                "id": "thresholds",
-                "value": {
-                  "mode": "absolute",
-                  "steps": [
+            "fieldConfig": {
+                "defaults": {
+                    "color": {
+                        "mode": "palette-classic"
+                    },
+                    "custom": {
+                        "axisBorderShow": false,
+                        "axisCenteredZero": false,
+                        "axisColorMode": "text",
+                        "axisLabel": "",
+                        "axisPlacement": "auto",
+                        "axisSoftMax": 160,
+                        "axisSoftMin": 100,
+                        "barAlignment": 0,
+                        "barWidthFactor": 0.6,
+                        "drawStyle": "line",
+                        "fillOpacity": 0,
+                        "gradientMode": "none",
+                        "hideFrom": {
+                            "legend": false,
+                            "tooltip": false,
+                            "viz": false
+                        },
+                        "insertNulls": false,
+                        "lineInterpolation": "linear",
+                        "lineWidth": 2,
+                        "pointSize": 5,
+                        "scaleDistribution": {
+                            "type": "linear"
+                        },
+                        "showPoints": "auto",
+                        "showValues": false,
+                        "spanNulls": false,
+                        "stacking": {
+                            "group": "A",
+                            "mode": "none"
+                        },
+                        "thresholdsStyle": {
+                            "mode": "off"
+                        }
+                    },
+                    "thresholds": {
+                        "mode": "absolute",
+                        "steps": [
+                            {
+                                "color": "green",
+                                "value": 0
+                            },
+                            {
+                                "color": "red",
+                                "value": 80
+                            }
+                        ]
+                    },
+                    "unit": "volt"
+                },
+                "overrides": [
                     {
-                      "color": "green",
-                      "value": null
+                        "matcher": {
+                            "id": "byFrameRefID",
+                            "options": "A"
+                        },
+                        "properties": [
+                            {
+                                "id": "color",
+                                "value": {
+                                    "fixedColor": "green",
+                                    "mode": "fixed"
+                                }
+                            },
+                            {
+                                "id": "displayName",
+                                "value": "Line voltage"
+                            },
+                            {
+                                "id": "custom.thresholdsStyle",
+                                "value": {
+                                    "mode": "dashed"
+                                }
+                            },
+                            {
+                                "id": "thresholds",
+                                "value": {
+                                    "mode": "absolute",
+                                    "steps": [
+                                        {
+                                            "color": "green",
+                                            "value": 0
+                                        },
+                                        {
+                                            "color": "blue",
+                                            "value": 115
+                                        },
+                                        {
+                                            "color": "orange",
+                                            "value": 126
+                                        }
+                                    ]
+                                }
+                            }
+                        ]
                     },
                     {
-                      "color": "yellow",
-                      "value": 2
+                        "matcher": {
+                            "id": "byFrameRefID",
+                            "options": "G"
+                        },
+                        "properties": [
+                            {
+                                "id": "color",
+                                "value": {
+                                    "fixedColor": "red",
+                                    "mode": "fixed"
+                                }
+                            },
+                            {
+                                "id": "displayName",
+                                "value": "Impulse (Hot)"
+                            },
+                            {
+                                "id": "custom.drawStyle",
+                                "value": "points"
+                            },
+                            {
+                                "id": "custom.pointSize",
+                                "value": 8
+                            }
+                        ]
                     },
                     {
-                      "color": "red",
-                      "value": 3
+                        "matcher": {
+                            "id": "byFrameRefID",
+                            "options": "C"
+                        },
+                        "properties": [
+                            {
+                                "id": "color",
+                                "value": {
+                                    "fixedColor": "super-light-blue",
+                                    "mode": "fixed"
+                                }
+                            },
+                            {
+                                "id": "displayName",
+                                "value": "Sag"
+                            },
+                            {
+                                "id": "custom.drawStyle",
+                                "value": "line"
+                            },
+                            {
+                                "id": "custom.lineWidth",
+                                "value": 2
+                            },
+                            {
+                                "id": "custom.showPoints",
+                                "value": "always"
+                            },
+                            {
+                                "id": "custom.pointSize",
+                                "value": 6
+                            },
+                            {
+                                "id": "custom.spanNulls",
+                                "value": 60000
+                            }
+                        ]
+                    },
+                    {
+                        "matcher": {
+                            "id": "byFrameRefID",
+                            "options": "D"
+                        },
+                        "properties": [
+                            {
+                                "id": "color",
+                                "value": {
+                                    "fixedColor": "purple",
+                                    "mode": "fixed"
+                                }
+                            },
+                            {
+                                "id": "displayName",
+                                "value": "HF noise"
+                            },
+                            {
+                                "id": "custom.drawStyle",
+                                "value": "points"
+                            },
+                            {
+                                "id": "custom.pointSize",
+                                "value": 9
+                            }
+                        ]
+                    },
+                    {
+                        "matcher": {
+                            "id": "byFrameRefID",
+                            "options": "E"
+                        },
+                        "properties": [
+                            {
+                                "id": "color",
+                                "value": {
+                                    "fixedColor": "yellow",
+                                    "mode": "fixed"
+                                }
+                            },
+                            {
+                                "id": "displayName",
+                                "value": "Freq fault"
+                            },
+                            {
+                                "id": "custom.drawStyle",
+                                "value": "points"
+                            },
+                            {
+                                "id": "custom.pointSize",
+                                "value": 9
+                            }
+                        ]
                     }
-                  ]
-                }
-              }
-            ]
-          },
-          {
-            "matcher": {
-              "id": "byFrameRefID",
-              "options": "B"
+                ]
             },
-            "properties": [
-              {
-                "id": "displayName",
-                "value": "Neutral transient"
-              },
-              {
-                "id": "custom.axisPlacement",
-                "value": "right"
-              },
-              {
-                "id": "custom.axisLabel",
-                "value": "transient (V)"
-              },
-              {
-                "id": "custom.axisSoftMin",
-                "value": 0
-              },
-              {
-                "id": "custom.drawStyle",
-                "value": "points"
-              },
-              {
-                "id": "custom.pointSize",
-                "value": 9
-              },
-              {
-                "id": "custom.lineWidth",
-                "value": 0
-              },
-              {
-                "id": "color",
-                "value": {
-                  "fixedColor": "orange",
-                  "mode": "fixed"
+            "gridPos": {
+                "h": 10,
+                "w": 23,
+                "x": 0,
+                "y": 0
+            },
+            "id": 1,
+            "options": {
+                "annotations": {
+                    "clustering": -1,
+                    "multiLane": false
+                },
+                "legend": {
+                    "calcs": [],
+                    "displayMode": "list",
+                    "enableFacetedFilter": false,
+                    "overflow": "ellipsis",
+                    "placement": "bottom",
+                    "showLegend": true
+                },
+                "tooltip": {
+                    "hideZeros": false,
+                    "mode": "multi",
+                    "sort": "none"
                 }
-              }
-            ]
-          }
+            },
+            "pluginVersion": "13.1.0-27871179369",
+            "targets": [
+                {
+                    "datasource": {
+                        "type": "prometheus",
+                        "uid": "grafanacloud-prom"
+                    },
+                    "expr": "pqr_d50_hot",
+                    "legendFormat": "Line voltage",
+                    "refId": "A"
+                },
+                {
+                    "datasource": {
+                        "type": "loki",
+                        "uid": "grafanacloud-logs"
+                    },
+                    "expr": "max(max_over_time({service_name=\"pqr_d50\"} | logfmt | type=\"impulse\" | channel=~\"[Hh].*\" | unwrap magnitude [$__interval]))",
+                    "hide": true,
+                    "legendFormat": "impulse_mag",
+                    "queryType": "range",
+                    "refId": "B"
+                },
+                {
+                    "datasource": {
+                        "type": "loki",
+                        "uid": "grafanacloud-logs"
+                    },
+                    "expr": "min by (unit) (min_over_time({service_name=\"pqr_d50\"} | logfmt | type=~\"sag_start|sag_complete\" | unwrap magnitude [$__interval]))",
+                    "legendFormat": "Sag",
+                    "queryType": "range",
+                    "refId": "C"
+                },
+                {
+                    "datasource": {
+                        "type": "loki",
+                        "uid": "grafanacloud-logs"
+                    },
+                    "expr": "count_over_time({service_name=\"pqr_d50\"} | logfmt | type=\"hf_noise\" [$__interval]) * 0 + 190",
+                    "legendFormat": "HF noise",
+                    "queryType": "range",
+                    "refId": "D"
+                },
+                {
+                    "datasource": {
+                        "type": "loki",
+                        "uid": "grafanacloud-logs"
+                    },
+                    "expr": "count_over_time({service_name=\"pqr_d50\"} | logfmt | type=\"freq_fault\" [$__interval]) * 0 + 185",
+                    "legendFormat": "Freq fault",
+                    "queryType": "range",
+                    "refId": "E"
+                },
+                {
+                    "datasource": {
+                        "type": "prometheus",
+                        "uid": "grafanacloud-prom"
+                    },
+                    "expr": "max(pqr_d50_hot)",
+                    "hide": true,
+                    "legendFormat": "v_sum",
+                    "refId": "F"
+                },
+                {
+                    "datasource": {
+                        "type": "__expr__",
+                        "uid": "__expr__"
+                    },
+                    "expression": "$F + $B",
+                    "refId": "G",
+                    "type": "math"
+                }
+            ],
+            "title": "Line voltage + disturbances  (impulse peaks \u00b7 sag dips)",
+            "type": "timeseries"
+        },
+        {
+            "datasource": {
+                "type": "mixed",
+                "uid": "-- Mixed --"
+            },
+            "fieldConfig": {
+                "defaults": {
+                    "color": {
+                        "mode": "palette-classic"
+                    },
+                    "custom": {
+                        "axisBorderShow": false,
+                        "axisCenteredZero": false,
+                        "axisColorMode": "text",
+                        "axisLabel": "",
+                        "axisPlacement": "auto",
+                        "barAlignment": 0,
+                        "barWidthFactor": 0.6,
+                        "drawStyle": "line",
+                        "fillOpacity": 10,
+                        "gradientMode": "none",
+                        "hideFrom": {
+                            "legend": false,
+                            "tooltip": false,
+                            "viz": false
+                        },
+                        "insertNulls": false,
+                        "lineInterpolation": "linear",
+                        "lineWidth": 2,
+                        "pointSize": 5,
+                        "scaleDistribution": {
+                            "type": "linear"
+                        },
+                        "showPoints": "auto",
+                        "showValues": false,
+                        "spanNulls": false,
+                        "stacking": {
+                            "group": "A",
+                            "mode": "none"
+                        },
+                        "thresholdsStyle": {
+                            "mode": "off"
+                        }
+                    },
+                    "decimals": 2,
+                    "thresholds": {
+                        "mode": "absolute",
+                        "steps": [
+                            {
+                                "color": "green",
+                                "value": 0
+                            },
+                            {
+                                "color": "red",
+                                "value": 80
+                            }
+                        ]
+                    },
+                    "unit": "volt"
+                },
+                "overrides": [
+                    {
+                        "matcher": {
+                            "id": "byFrameRefID",
+                            "options": "A"
+                        },
+                        "properties": [
+                            {
+                                "id": "displayName",
+                                "value": "Neutral-ground V"
+                            },
+                            {
+                                "id": "min",
+                                "value": 0
+                            },
+                            {
+                                "id": "max",
+                                "value": 5
+                            },
+                            {
+                                "id": "color",
+                                "value": {
+                                    "fixedColor": "green",
+                                    "mode": "fixed"
+                                }
+                            },
+                            {
+                                "id": "custom.thresholdsStyle",
+                                "value": {
+                                    "mode": "dashed"
+                                }
+                            },
+                            {
+                                "id": "thresholds",
+                                "value": {
+                                    "mode": "absolute",
+                                    "steps": [
+                                        {
+                                            "color": "green",
+                                            "value": 0
+                                        },
+                                        {
+                                            "color": "yellow",
+                                            "value": 2
+                                        },
+                                        {
+                                            "color": "red",
+                                            "value": 3
+                                        }
+                                    ]
+                                }
+                            }
+                        ]
+                    },
+                    {
+                        "matcher": {
+                            "id": "byFrameRefID",
+                            "options": "B"
+                        },
+                        "properties": [
+                            {
+                                "id": "displayName",
+                                "value": "Neutral transient"
+                            },
+                            {
+                                "id": "custom.axisPlacement",
+                                "value": "right"
+                            },
+                            {
+                                "id": "custom.axisLabel",
+                                "value": "transient (V)"
+                            },
+                            {
+                                "id": "custom.axisSoftMin",
+                                "value": 0
+                            },
+                            {
+                                "id": "custom.drawStyle",
+                                "value": "points"
+                            },
+                            {
+                                "id": "custom.pointSize",
+                                "value": 9
+                            },
+                            {
+                                "id": "custom.lineWidth",
+                                "value": 0
+                            },
+                            {
+                                "id": "color",
+                                "value": {
+                                    "fixedColor": "orange",
+                                    "mode": "fixed"
+                                }
+                            }
+                        ]
+                    }
+                ]
+            },
+            "gridPos": {
+                "h": 8,
+                "w": 24,
+                "x": 0,
+                "y": 10
+            },
+            "id": 2,
+            "options": {
+                "annotations": {
+                    "clustering": -1,
+                    "multiLane": false
+                },
+                "legend": {
+                    "calcs": [],
+                    "displayMode": "list",
+                    "enableFacetedFilter": false,
+                    "overflow": "ellipsis",
+                    "placement": "bottom",
+                    "showLegend": true
+                },
+                "tooltip": {
+                    "hideZeros": false,
+                    "mode": "multi",
+                    "sort": "none"
+                }
+            },
+            "pluginVersion": "13.1.0-27871179369",
+            "targets": [
+                {
+                    "datasource": {
+                        "type": "prometheus",
+                        "uid": "grafanacloud-prom"
+                    },
+                    "expr": "pqr_d50_neu",
+                    "legendFormat": "Neutral-ground V",
+                    "refId": "A"
+                },
+                {
+                    "datasource": {
+                        "type": "loki",
+                        "uid": "grafanacloud-logs"
+                    },
+                    "expr": "max by (unit) (max_over_time({service_name=\"pqr_d50\"} | logfmt | type=\"impulse\" | channel=~\"[Nn].*\" | unwrap magnitude [$__interval]))",
+                    "legendFormat": "Neutral transient",
+                    "queryType": "range",
+                    "refId": "B"
+                }
+            ],
+            "title": "Neutral-to-ground / common-mode noise  (good < 2 V \u00b7 investigate > 3 V)",
+            "type": "timeseries"
+        },
+        {
+            "datasource": {
+                "type": "loki",
+                "uid": "grafanacloud-logs"
+            },
+            "gridPos": {
+                "h": 16,
+                "w": 12,
+                "x": 0,
+                "y": 18
+            },
+            "id": 5,
+            "options": {
+                "dedupStrategy": "none",
+                "enableInfiniteScrolling": false,
+                "enableLogDetails": true,
+                "prettifyLogMessage": true,
+                "showControls": false,
+                "showFieldSelector": false,
+                "showLevel": true,
+                "showLogAttributes": true,
+                "showTime": true,
+                "sortOrder": "Descending",
+                "timestampResolution": "ms",
+                "unwrappedColumns": false,
+                "wrapLogMessage": false
+            },
+            "pluginVersion": "13.1.0-27871179369",
+            "targets": [
+                {
+                    "datasource": {
+                        "type": "loki",
+                        "uid": "grafanacloud-logs"
+                    },
+                    "expr": "{service_name=\"pqr_d50\"} | logfmt",
+                    "queryType": "range",
+                    "refId": "A"
+                }
+            ],
+            "title": "Recent disturbances",
+            "type": "logs"
+        },
+        {
+            "datasource": {
+                "type": "prometheus",
+                "uid": "grafanacloud-prom"
+            },
+            "fieldConfig": {
+                "defaults": {
+                    "thresholds": {
+                        "mode": "absolute",
+                        "steps": [
+                            {
+                                "color": "red",
+                                "value": 0
+                            },
+                            {
+                                "color": "green",
+                                "value": 114
+                            },
+                            {
+                                "color": "red",
+                                "value": 127
+                            }
+                        ]
+                    },
+                    "unit": "volt"
+                }
+            },
+            "gridPos": {
+                "h": 8,
+                "w": 6,
+                "x": 12,
+                "y": 18
+            },
+            "id": 3,
+            "options": {
+                "colorMode": "value",
+                "graphMode": "area",
+                "justifyMode": "auto",
+                "orientation": "auto",
+                "percentChangeColorMode": "standard",
+                "reduceOptions": {
+                    "calcs": [
+                        "lastNotNull"
+                    ],
+                    "fields": "",
+                    "values": false
+                },
+                "showPercentChange": false,
+                "textMode": "auto",
+                "wideLayout": true
+            },
+            "pluginVersion": "13.1.0-27871179369",
+            "targets": [
+                {
+                    "datasource": {
+                        "type": "prometheus",
+                        "uid": "grafanacloud-prom"
+                    },
+                    "editorMode": "code",
+                    "expr": "pqr_d50_hot",
+                    "instant": true,
+                    "refId": "A"
+                }
+            ],
+            "title": "Latest line voltage",
+            "type": "stat"
+        },
+        {
+            "datasource": {
+                "type": "loki",
+                "uid": "grafanacloud-logs"
+            },
+            "fieldConfig": {
+                "defaults": {
+                    "thresholds": {
+                        "mode": "absolute",
+                        "steps": [
+                            {
+                                "color": "green",
+                                "value": 0
+                            },
+                            {
+                                "color": "red",
+                                "value": 1
+                            }
+                        ]
+                    },
+                    "unit": "short"
+                }
+            },
+            "gridPos": {
+                "h": 8,
+                "w": 6,
+                "x": 18,
+                "y": 18
+            },
+            "id": 4,
+            "options": {
+                "colorMode": "background",
+                "graphMode": "none",
+                "justifyMode": "auto",
+                "orientation": "auto",
+                "percentChangeColorMode": "standard",
+                "reduceOptions": {
+                    "calcs": [
+                        "lastNotNull"
+                    ],
+                    "fields": "",
+                    "values": false
+                },
+                "showPercentChange": false,
+                "textMode": "auto",
+                "wideLayout": true
+            },
+            "pluginVersion": "13.1.0-27871179369",
+            "targets": [
+                {
+                    "datasource": {
+                        "type": "loki",
+                        "uid": "grafanacloud-logs"
+                    },
+                    "expr": "sum(count_over_time({service_name=\"pqr_d50\"} | logfmt | type=\"power_failure\" [$__range]))",
+                    "queryType": "instant",
+                    "refId": "A"
+                }
+            ],
+            "title": "Power failures (range)",
+            "type": "stat"
+        },
+        {
+            "datasource": {
+                "type": "loki",
+                "uid": "grafanacloud-logs"
+            },
+            "fieldConfig": {
+                "defaults": {
+                    "color": {
+                        "mode": "thresholds"
+                    },
+                    "custom": {
+                        "align": "auto",
+                        "cellOptions": {
+                            "type": "auto"
+                        },
+                        "filterable": false,
+                        "inspect": false
+                    },
+                    "mappings": [],
+                    "thresholds": {
+                        "mode": "absolute",
+                        "steps": [
+                            {
+                                "color": "green",
+                                "value": 0
+                            }
+                        ]
+                    },
+                    "unit": "short"
+                },
+                "overrides": [
+                    {
+                        "matcher": {
+                            "id": "byName",
+                            "options": "Count"
+                        },
+                        "properties": [
+                            {
+                                "id": "custom.cellOptions",
+                                "value": {
+                                    "mode": "gradient",
+                                    "type": "gauge"
+                                }
+                            },
+                            {
+                                "id": "color",
+                                "value": {
+                                    "mode": "continuous-GrYlRd"
+                                }
+                            },
+                            {
+                                "id": "min",
+                                "value": 0
+                            }
+                        ]
+                    }
+                ]
+            },
+            "gridPos": {
+                "h": 8,
+                "w": 12,
+                "x": 12,
+                "y": 26
+            },
+            "id": 6,
+            "options": {
+                "cellHeight": "sm",
+                "footer": {
+                    "countRows": false,
+                    "fields": "",
+                    "reducer": [
+                        "sum"
+                    ],
+                    "show": false
+                },
+                "showHeader": true,
+                "sortBy": [
+                    {
+                        "desc": true,
+                        "displayName": "Count"
+                    }
+                ]
+            },
+            "pluginVersion": "13.1.0",
+            "targets": [
+                {
+                    "datasource": {
+                        "type": "loki",
+                        "uid": "grafanacloud-logs"
+                    },
+                    "expr": "label_replace(sum by (type) (count_over_time({service_name=\"pqr_d50\"} | logfmt | type!=\"sag_complete\" [$__interval])), \"type\", \"sag\", \"type\", \"sag_start\")",
+                    "legendFormat": "{{type}}",
+                    "queryType": "range",
+                    "refId": "A"
+                }
+            ],
+            "title": "Disturbances by type (in range)",
+            "transformations": [
+                {
+                    "id": "reduce",
+                    "options": {
+                        "mode": "seriesToRows",
+                        "reducers": [
+                            "sum"
+                        ]
+                    }
+                },
+                {
+                    "id": "organize",
+                    "options": {
+                        "excludeByName": {},
+                        "indexByName": {},
+                        "renameByName": {
+                            "Field": "Type",
+                            "Sum": "Count",
+                            "Total": "Count",
+                            "sum": "Count"
+                        }
+                    }
+                }
+            ],
+            "type": "table"
+        }
+    ],
+    "preload": false,
+    "refresh": "1m",
+    "schemaVersion": 42,
+    "tags": [
+        "power",
+        "pqr-d50"
+    ],
+    "time": {
+        "from": "now-7d",
+        "to": "now"
+    },
+    "timepicker": {
+        "refresh_intervals": [
+            "5s",
+            "10s",
+            "30s",
+            "1m",
+            "5m",
+            "15m",
+            "30m",
+            "1h",
+            "2h",
+            "1d"
         ]
-      },
-      "gridPos": {
-        "h": 8,
-        "w": 12,
-        "x": 0,
-        "y": 9
-      },
-      "id": 2,
-      "options": {
-        "legend": {
-          "displayMode": "list",
-          "placement": "bottom"
-        },
-        "tooltip": {
-          "mode": "multi"
-        }
-      },
-      "targets": [
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "grafanacloud-prom"
-          },
-          "expr": "pqr_d50_neu",
-          "legendFormat": "Neutral-ground V",
-          "refId": "A"
-        },
-        {
-          "datasource": {
-            "type": "loki",
-            "uid": "grafanacloud-logs"
-          },
-          "expr": "max by (unit) (max_over_time({service_name=\"pqr_d50\"} | logfmt | type=\"impulse\" | channel=~\"[Nn].*\" | unwrap magnitude [$__interval]))",
-          "legendFormat": "Neutral transient",
-          "queryType": "range",
-          "refId": "B"
-        }
-      ],
-      "title": "Neutral-to-ground / common-mode noise  (good < 2 V \u00b7 investigate > 3 V)",
-      "type": "timeseries"
     },
-    {
-      "datasource": {
-        "type": "prometheus",
-        "uid": "grafanacloud-prom"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "red",
-                "value": 0
-              },
-              {
-                "color": "green",
-                "value": 114
-              },
-              {
-                "color": "red",
-                "value": 127
-              }
-            ]
-          },
-          "unit": "volt"
-        }
-      },
-      "gridPos": {
-        "h": 8,
-        "w": 6,
-        "x": 12,
-        "y": 9
-      },
-      "id": 3,
-      "options": {
-        "colorMode": "value",
-        "graphMode": "area",
-        "justifyMode": "auto",
-        "orientation": "auto",
-        "percentChangeColorMode": "standard",
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ],
-          "fields": "",
-          "values": false
-        },
-        "showPercentChange": false,
-        "textMode": "auto",
-        "wideLayout": true
-      },
-      "pluginVersion": "13.1.0-27822252871",
-      "targets": [
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "grafanacloud-prom"
-          },
-          "editorMode": "code",
-          "expr": "pqr_d50_hot",
-          "instant": true,
-          "refId": "A"
-        }
-      ],
-      "title": "Latest line voltage",
-      "type": "stat"
-    },
-    {
-      "datasource": {
-        "type": "loki",
-        "uid": "grafanacloud-logs"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "green",
-                "value": 0
-              },
-              {
-                "color": "red",
-                "value": 1
-              }
-            ]
-          },
-          "unit": "short"
-        }
-      },
-      "gridPos": {
-        "h": 8,
-        "w": 6,
-        "x": 18,
-        "y": 9
-      },
-      "id": 4,
-      "options": {
-        "colorMode": "background",
-        "graphMode": "none",
-        "justifyMode": "auto",
-        "orientation": "auto",
-        "percentChangeColorMode": "standard",
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ],
-          "fields": "",
-          "values": false
-        },
-        "showPercentChange": false,
-        "textMode": "auto",
-        "wideLayout": true
-      },
-      "pluginVersion": "13.1.0-27822252871",
-      "targets": [
-        {
-          "datasource": {
-            "type": "loki",
-            "uid": "grafanacloud-logs"
-          },
-          "expr": "sum(count_over_time({service_name=\"pqr_d50\"} | logfmt | type=\"power_failure\" [$__range]))",
-          "queryType": "instant",
-          "refId": "A"
-        }
-      ],
-      "title": "Power failures (range)",
-      "type": "stat"
-    },
-    {
-      "datasource": {
-        "type": "loki",
-        "uid": "grafanacloud-logs"
-      },
-      "gridPos": {
-        "h": 9,
-        "w": 24,
-        "x": 0,
-        "y": 17
-      },
-      "id": 5,
-      "options": {
-        "dedupStrategy": "none",
-        "enableLogDetails": true,
-        "showTime": true,
-        "sortOrder": "Descending",
-        "wrapLogMessage": false
-      },
-      "targets": [
-        {
-          "datasource": {
-            "type": "loki",
-            "uid": "grafanacloud-logs"
-          },
-          "expr": "{service_name=\"pqr_d50\"} | logfmt",
-          "queryType": "range",
-          "refId": "A"
-        }
-      ],
-      "title": "Recent disturbances",
-      "type": "logs"
-    },
-    {
-      "datasource": {
-        "type": "loki",
-        "uid": "grafanacloud-logs"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "color": {
-            "mode": "continuous-GrYlRd"
-          },
-          "min": 0,
-          "unit": "short"
-        }
-      },
-      "gridPos": {
-        "h": 8,
-        "w": 12,
-        "x": 12,
-        "y": 26
-      },
-      "id": 6,
-      "options": {
-        "displayMode": "gradient",
-        "orientation": "horizontal",
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ],
-          "fields": "",
-          "values": false
-        },
-        "showUnfilled": true
-      },
-      "targets": [
-        {
-          "datasource": {
-            "type": "loki",
-            "uid": "grafanacloud-logs"
-          },
-          "expr": "sum by (type) (count_over_time({service_name=\"pqr_d50\"} | logfmt [$__range]))",
-          "legendFormat": "{{type}}",
-          "queryType": "instant",
-          "refId": "A"
-        }
-      ],
-      "title": "Disturbances by type (in range)",
-      "type": "bargauge"
-    }
-  ],
-  "preload": false,
-  "refresh": "1m",
-  "schemaVersion": 42,
-  "tags": [
-    "power",
-    "pqr-d50"
-  ],
-  "templating": {
-    "list": []
-  },
-  "time": {
-    "from": "now-6h",
-    "to": "now"
-  },
-  "timepicker": {
-    "refresh_intervals": [
-      "5s",
-      "10s",
-      "30s",
-      "1m",
-      "5m",
-      "15m",
-      "30m",
-      "1h",
-      "2h",
-      "1d"
-    ]
-  },
-  "timezone": "browser",
-  "title": "PQR D50 \u2014 Mains Power Quality",
-  "uid": "pqr-d50-mains",
-  "version": 0
+    "timezone": "browser",
+    "title": "Energy - Power Quality",
+    "uid": "pqr-d50-mains",
+    "version": 30
 }
